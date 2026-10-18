@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#176b52">
+  <meta name="description" content="تعلّم مع الهيثم — مساحة تعليمية ممتعة وآمنة للأطفال.">
+  <title>تعلّم مع الهيثم</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="تعلّم مع الهيثم - الرئيسية">
+        <span class="brand-mark" aria-hidden="true">هـ</span>
+        <span><strong>تعلّم مع الهيثم</strong><small>كل طفل يستحق معلّمًا</small></span>
+      </a>
+      <button id="profileButton" class="profile-button" type="button" aria-haspopup="dialog">
+        <span id="avatarPreview" class="avatar">🧒</span><span id="profileButtonText">ملفي</span><span aria-hidden="true">⌄</span>
+      </button>
+    </header>
+
+    <main>
+      <section class="welcome-panel">
+        <div class="welcome-copy">
+          <span class="eyebrow">مساحة تعلّم ممتعة 🌱</span>
+          <h1>أهلًا يا بطل! <span id="welcomeName"></span></h1>
+          <p>نتعلّم خطوة خطوة، ونجرب مع بعض. الغلط فرصة جديدة للتعلّم!</p>
+          <div class="welcome-actions">
+            <button id="startLesson" class="button button-primary" type="button">يلا نبدأ <span aria-hidden="true">←</span></button>
+            <span class="gentle-note">✨ خذ وقتك، ما فيش استعجال</span>
+          </div>
+        </div>
+        <div class="hero-art" aria-hidden="true">
+          <div class="sun"></div><div class="book book-back"></div><div class="book book-front"><span>أ ب ت</span></div>
+          <div class="pencil">✏️</div><div class="star star-one">✦</div><div class="star star-two">✧</div>
+        </div>
+      </section>
+
+      <section class="section-heading">
+        <div><span class="eyebrow">اختر مغامرتك</span><h2>إيش بنكتشف اليوم؟</h2></div>
+        <span class="section-caption">دروس قصيرة وممتعة</span>
+      </section>
+
+      <section class="subject-grid" aria-label="المواد التعليمية">
+        <button class="subject-card selected" data-subject="math" type="button">
+          <span class="subject-emoji math-emoji">🍎</span><span class="subject-title">الرياضيات</span><span class="subject-desc">نعدّ ونحلّ الألغاز</span><span class="subject-arrow">←</span>
+        </button>
+        <button class="subject-card" data-subject="reading" type="button">
+          <span class="subject-emoji reading-emoji">📚</span><span class="subject-title">القراءة والحروف</span><span class="subject-desc">نتعرّف على الحروف</span><span class="subject-arrow">←</span>
+        </button>
+        <button class="subject-card" data-subject="science" type="button">
+          <span class="subject-emoji science-emoji">🌱</span><span class="subject-title">العلوم</span><span class="subject-desc">نفهم العالم حولنا</span><span class="subject-arrow">←</span>
+        </button>
+      </section>
+
+      <section class="learning-layout" id="lessonSection">
+        <div class="lesson-card">
+          <div class="lesson-topline"><span class="lesson-tag" id="lessonTag">مغامرة الرياضيات</span><span class="lesson-step" id="lessonStep">الدرس ١ من ١</span></div>
+          <h2 id="lessonTitle">نجمع التفاحات 🍎</h2>
+          <p id="lessonIntro" class="lesson-intro">خلّينا نشوف كم تفاحة عندنا إذا جمعنا المجموعتين.</p>
+
+          <div class="visual-stage" id="visualStage" aria-label="وسائل بصرية للدرس">
+            <div class="apple-group"><span>🍎</span><span>🍎</span></div>
+            <span class="math-symbol" aria-hidden="true">+</span>
+            <div class="apple-group"><span>🍎</span></div>
+            <span class="math-symbol equals" aria-hidden="true">=</span>
+            <div class="apple-group answer-apples" id="answerApples"><span class="question-mark">؟</span></div>
+          </div>
+          <div class="visual-caption" id="visualCaption">عدّ التفاحات واحدة واحدة، وبعدها قل لنا الناتج.</div>
+
+          <div class="answer-area">
+            <p class="question" id="questionText">٢ تفاحتان + تفاحة واحدة = كم تفاحة؟</p>
+            <div class="answer-options" id="answerOptions">
+              <button class="answer-button" data-answer="2" type="button">٢</button>
+              <button class="answer-button" data-answer="3" type="button">٣</button>
+              <button class="answer-button" data-answer="4" type="button">٤</button>
+            </div>
+            <div id="feedback" class="feedback" role="status" aria-live="polite">اختَر الإجابة اللي تشوفها صحيحة.</div>
+          </div>
+
+          <div class="lesson-controls">
+            <button id="listenButton" class="button button-soft" type="button"><span aria-hidden="true">🔊</span> اسمع الشرح</button>
+            <button id="voiceButton" class="button button-primary" type="button"><span aria-hidden="true">🎙️</span> احكِ مع المعلّم</button>
+          </div>
+          <div id="voicePanel" class="voice-panel" hidden>
+            <div class="voice-indicator"><span class="pulse"></span><div><strong id="voiceStatus">المعلّم يسمعك</strong><small id="voiceHelp">تكلم براحتك، واضغط إنهاء عندما تخلص.</small></div></div>
+            <p id="heardText" class="heard-text">ما سمعت كلامك بعد.</p>
+            <button id="stopVoiceButton" class="button button-stop" type="button">إنهاء المحادثة</button>
+          </div>
+          <p class="privacy-note">🎈 الصوت يعمل عبر متصفح جهازك إذا كان مدعومًا. لا نستخدم الصوت للتعرّف على هوية الطفل.</p>
+        </div>
+
+        <aside class="progress-card">
+          <div class="progress-icon">🏆</div><h3>رحلتك في التعلّم</h3><p>كل محاولة تقرّبك من هدفك.</p>
+          <div class="progress-stat"><span>دروس أنهيتها</span><strong id="lessonsDone">٠</strong></div>
+          <div class="progress-stat"><span>إجابات صحيحة</span><strong id="correctCount">٠</strong></div>
+          <div class="progress-bar"><span id="progressFill"></span></div>
+          <div class="progress-message" id="progressMessage">ابدأ أول درس واجمع نجومك ⭐</div>
+          <button id="resetProgress" class="text-button" type="button">إعادة تقدّم هذا الجهاز</button>
+        </aside>
+      </section>
+
+      <section class="parent-note">
+        <span class="parent-icon">💚</span><div><strong>نتعلّم بأمان، وبالراحة</strong><p>هذا إصدار تجريبي للتعلّم. ساعد طفلك في استخدام الجهاز، وتأكد من مناسبة المحتوى لعمره.</p></div>
+      </section>
+    </main>
+    <footer><span>تعلّم مع الهيثم</span><span>خطوة صغيرة اليوم، معرفة أكبر غدًا 🌿</span></footer>
+  </div>
+
+  <dialog id="profileDialog" class="profile-dialog">
+    <form method="dialog" id="profileForm">
+      <button class="dialog-close" aria-label="إغلاق" value="cancel" type="submit">×</button>
+      <span class="dialog-emoji">🧒</span><h2>من معنا اليوم؟</h2><p>اختَر اسمًا وصورة عشان نرحّب بك.</p>
+      <label for="childName">اسم الطفل (اختياري)</label><input id="childName" maxlength="24" placeholder="مثلاً: علي">
+      <label for="childAge">العمر (اختياري)</label><select id="childAge"><option value="">خلّيه بدون تحديد</option><option value="4-5">٤–٥ سنوات</option><option value="6-7">٦–٧ سنوات</option><option value="8-9">٨–٩ سنوات</option><option value="10+">١٠ سنوات فأكثر</option></select>
+      <div class="avatar-picker" aria-label="اختَر صورة">
+        <button type="button" data-avatar="🧒" class="avatar-choice chosen">🧒</button><button type="button" data-avatar="👧" class="avatar-choice">👧</button><button type="button" data-avatar="👦" class="avatar-choice">👦</button><button type="button" data-avatar="🦊" class="avatar-choice">🦊</button><button type="button" data-avatar="🐼" class="avatar-choice">🐼</button>
+      </div>
+      <button id="saveProfile" class="button button-primary full-width" value="save" type="submit">حفظ والبدء</button>
+      <button id="clearProfile" class="text-button full-width" type="button">استخدام التطبيق بدون ملف</button>
+      <small class="storage-note">يُحفظ الملف على هذا الجهاز فقط في هذا الإصدار التجريبي.</small>
+    </form>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

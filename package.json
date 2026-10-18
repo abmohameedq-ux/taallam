@@ -1,0 +1,12 @@
+{
+  "name": "taallam-ma-alhaitham",
+  "version": "1.0.0",
+  "private": true,
+  "description": "تعلّم مع الهيثم - نموذج أولي تعليمي عربي للأطفال",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
