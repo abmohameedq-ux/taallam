@@ -156,7 +156,7 @@ async function teacherAnswer(question, history=[], curriculum=null){
   if(!key) return {configured:false, grounded:Boolean(curriculum), bookTitle:curriculum?.book?.title||null, answer:curriculum?'الكتاب «'+curriculum.book.title+'» محدد، لكن خدمة المعلّم الذكي غير مفعّلة على الخادم؛ لذلك لا أريد عرض كلمات مستخرجة من PDF وكأنها شرح صحيح. فعّل AI_API_KEY في إعدادات الاستضافة، ثم أعد طلب الشرح.':'خدمة المعلّم الذكي غير مفعّلة على الخادم.'};
   const base=(process.env.AI_BASE_URL||'https://api.openai.com/v1').replace(/\/$/,'');
   const model=process.env.AI_MODEL||'gpt-4o-mini';
-  const groundedRules=curriculum?`\n\nقيد تعليمي إلزامي: افهم سؤال الطفل بصيغته الطبيعية واللهجة ولا تشترط تطابق كلمات السؤال مع نص الكتاب. أجب اعتمادًا على المقتطف من الكتاب المحدد، ولا تنسب للكتاب معلومات غير موجودة فيه. إذا طلب شرحًا عامًا، ابدأ بشرح تمهيدي مما يظهر في المقتطف؛ وإذا لم يكفِ النص فاطلب منه عنوان الدرس أو توضيحًا بلطف. اجعل الشرح مناسبًا للصوت: جمل قصيرة، خطوة خطوة، مع مثال محسوس وأسئلة بسيطة عند الحاجة.\nالكتاب: ${curriculum.book.title} | الصف: ${curriculum.book.grade||'غير محدد'} | المادة: ${curriculum.book.subject||'غير محددة'}.\nمقتطف نص الكتاب:\n${curriculum.excerpt}`:'';
+  const groundedRules=curriculum?`\n\nقيد تعليمي إلزامي: افهم سؤال الطفل بصيغته الطبيعية واللهجة ولا تشترط تطابق كلمات السؤال مع نص الكتاب. أجب اعتمادًا على المقتطف من الكتاب المحدد، ولا تنسب للكتاب معلومات غير موجودة فيه. إذا طلب شرحًا عامًا، ابدأ بشرح تمهيدي مما يظهر في المقتطف؛ وإذا لم يكفِ النص فاطلب منه عنوان الدرس أو توضيحًا بلطف. اجعل الشرح مناسبًا للصوت: جمل قصيرة، خطوة خطوة، مع مثال محسوس وأسئلة بسيطة عند الحاجة. إذا كان الصف من الأول إلى الثالث فاستخدم مفردات طفولية مشجعة، وفكرة واحدة في كل خطوة، وعدًّا محسوسًا باستخدام تفاحات أو أقلام أو مكعبات، ثم اطلب من الطفل تجربة سؤال صغير. لا تكتفِ بإعادة صياغة الكتاب أو قراءته. للرياضيات اكتب خطوات الحل بالأرقام بوضوح وبيّن ماذا أضفنا أو أزلنا. للصفوف الرابع إلى السادس اشرح المصطلحات ثم أعط مثالًا وتدريبًا متدرجًا. لا تدّعِ أنك عرضت صورة أو حركة فعلية إذا لم تكن قد عُرضت في الواجهة.\nالكتاب: ${curriculum.book.title} | الصف: ${curriculum.book.grade||'غير محدد'} | المادة: ${curriculum.book.subject||'غير محددة'}.\nمقتطف نص الكتاب:\n${curriculum.excerpt}`:'';
   const messages=[{role:'system',content:systemPrompt+groundedRules}];
   for(const item of history.slice(-6)) if(item && ['user','assistant'].includes(item.role) && typeof item.content==='string') messages.push({role:item.role,content:item.content.slice(0,1500)});
   messages.push({role:'user',content:question.slice(0,2000)});
@@ -189,10 +189,25 @@ function curriculumContext(question, bookId){
   const q=String(question||'').trim();
   // Resolve requests such as "اشرح الدرس الثاني" against headings extracted from the selected book.
   const ordinalWords={'الأول':1,'الاول':1,'الأولى':1,'الاولى':1,'الثاني':2,'الثانية':2,'الثالث':3,'الثالثة':3,'الرابع':4,'الرابعة':4,'الخامس':5,'الخامسة':5,'السادس':6,'السادسة':6,'السابع':7,'السابعة':7,'الثامن':8,'الثامنة':8,'التاسع':9,'التاسعة':9,'العاشر':10,'العاشرة':10};
+  const unitRequest=/(?:الوحدة|وحدة|unit|chapter)/i.test(q);
   const lessonRequest=/(?:درس|الدرس|دروس|lesson)/i.test(q);
   // Arabic word boundaries are not reliable with JavaScript \b; parse ordinals explicitly.
   const ordinalPattern='(?:[0-9٠-٩]+|الأول|الاول|الأولى|الاولى|الثاني|الثانية|الثالث|الثالثة|الرابع|الرابعة|الخامس|الخامسة|السادس|السادسة|السابع|السابعة|الثامن|الثامنة|التاسع|التاسعة|العاشر|العاشرة)';
   const ordinalMatch=q.match(new RegExp('(?:الدرس|درس|lesson)\\s*(?:رقم\\s*)?('+ordinalPattern+')','i'));
+  const unitOrdinalMatch=q.match(new RegExp('(?:الوحدة|وحدة|unit|chapter)\\s*(?:رقم\\s*)?('+ordinalPattern+')','i'));
+  if(unitRequest&&unitOrdinalMatch){
+    const raw=unitOrdinalMatch[1];const num=/^[0-9٠-٩]+$/.test(raw)?Number(raw.replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d))):ordinalWords[raw];
+    for(const book of chosen){
+      const text=normalizeCurriculumText(book.extractedText);
+      const heads=inferOutline(text).filter(h=>/^(?:الوحدة|وحدة|Unit|Chapter)\\s*(?:[0-9٠-٩]+|الأولى|الاولى|الأول|الاول|الثانية|الثاني|الثالثة|الثالث|الرابعة|الرابع|الخامسة|الخامس|السادسة|السادس|السابعة|السابع|الثامنة|الثامن|التاسعة|التاسع|العاشرة|العاشر)/i.test(h.title));
+      if(num&&heads.length>=num){
+        const title=heads[num-1].title;const at=text.indexOf(title);const next=heads[num]?.title;const nextAt=next?text.indexOf(next,at+title.length):-1;
+        const excerpt=text.slice(at,nextAt>at?nextAt:Math.min(text.length,at+11000)).trim().slice(0,9000);
+        if(excerpt.length>40&&curriculumTextQuality(excerpt).ok)return {book,excerpt,matched:true,unitTitle:title,unitNumber:num};
+      }
+    }
+    return {book:chosen[0],excerpt:'',matched:false,reason:'unit-not-found'};
+  }
   const pageRequest=/صفحة|الصفحة|page/i.test(q);
   if(pageRequest){return {book:chosen[0],excerpt:'',matched:false,reason:'page-index-unavailable'};}
   if(lessonRequest&&ordinalMatch){

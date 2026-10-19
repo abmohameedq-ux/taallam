@@ -77,7 +77,7 @@ for (const name of ['manifest-public.webmanifest','manifest-admin.webmanifest','
 const installer = fs.readFileSync(path.join(root,'public','install.js'),'utf8');
 const serviceWorker = fs.readFileSync(path.join(root,'public','sw.js'),'utf8');
 checks.push(['installer keeps one declared manifest per portal', installer.includes("document.querySelector('link[rel=\\\"manifest\\\"]')")]);
-checks.push(['public service worker cache is versioned for the three-app PWA architecture', serviceWorker.includes('taallam-shell-v2.74.0')]);
+checks.push(['public service worker cache is versioned for the three-app PWA architecture', serviceWorker.includes('taallam-shell-v2.81.0')]);
 for (const [role, scope, cache] of [['admin','/admin/','taallam-admin-shell-v2.74.0'],['school-admin','/school-admin/','taallam-school-admin-shell-v2.74.0']]) { const worker=fs.readFileSync(path.join(root,'public',role,'sw.js'),'utf8'); checks.push([`${role} has an independent scoped service worker`, worker.includes(`const CACHE_NAME = '${cache}'`) && worker.includes(`caches.match('${scope}')`)]); }
 checks.push(['admin portals register separate scoped service workers', installer.includes("role==='admin'?'/admin/sw.js':role==='school-admin'?'/school-admin/sw.js':'/sw.js'") && installer.includes("scope,updateViaCache:'none'")]);
 checks.push(['service worker caches the three installable manifests and distinct app icons', serviceWorker.includes('/manifest-public.webmanifest')&&serviceWorker.includes('/manifest-admin.webmanifest')&&serviceWorker.includes('/manifest-school-admin.webmanifest')&&serviceWorker.includes('/icons/taallam-admin-512.png')&&serviceWorker.includes('/icons/taallam-school-512.png')]);
@@ -88,9 +88,26 @@ for (const name of ['manifest-admin.webmanifest','manifest-school-admin.webmanif
 checks.push(['installer exposes three identities with trailing-slash route support', installer.includes("'/admin/':'admin'") && installer.includes("'/school-admin/':'school-admin'") && installer.includes("const role=roles[path]||'public'")]);
 const publicManifest = JSON.parse(fs.readFileSync(path.join(root,'public','manifest-public.webmanifest'),'utf8'));
 checks.push(['learning app has a unique install identity distinct from the site root and admin apps', publicManifest.id==='/learn-app' && publicManifest.start_url==='/' && publicManifest.scope==='/']);
+checks.push(['student portal includes the interactive learning studio with curriculum book, chat, and microphone controls', fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('data-student-tab="tutor"') && fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('id="tutorMic"') && fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('id="tutorBook"')]);
+checks.push(['student learning studio includes visual arithmetic and speech playback controls', fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('function renderTutorVisual') && fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('function speakTutor')]);
+checks.push(['teacher portal includes curriculum-based lesson preparation and print controls', fs.readFileSync(path.join(root,'public','teacher.html'),'utf8').includes('id="prepareForm"') && fs.readFileSync(path.join(root,'public','teacher.html'),'utf8').includes('id="printPreparation"')]);
+checks.push(['curriculum assistant resolves numbered unit requests against book headings', fs.readFileSync(path.join(root,'server.js'),'utf8').includes('unitOrdinalMatch') && fs.readFileSync(path.join(root,'server.js'),'utf8').includes('unit-not-found')]);
+checks.push(['student portal includes offline Arabic letters and words practice', fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('id="readingLab"') && fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('const readingWords=')]);
+checks.push(['reading practice gives feedback, speech playback, and saves local progress', fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('function readingCheck(letter,btn)') && fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('readingSave()') && fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('id="readingSpeak"')]);
+
+const studentHtml = fs.readFileSync(path.join(root,'public','student.html'),'utf8');
+checks.push(['student portal includes guided lesson sequence from explanation to completion', studentHtml.includes('id=\"guidedLesson\"') && studentHtml.includes('function lessonRender()') && studentHtml.includes('function lessonAnswer(value,button)')]);
+checks.push(['guided lessons cover literacy and four foundational maths topics', ['letters','add','subtract','multiply','compare'].every(topic => studentHtml.includes(topic+':{title:'))]);
+checks.push(['guided lesson provides stage progress, speech readout, and hints', studentHtml.includes('id=\"lessonProgressBar\"') && studentHtml.includes('id=\"lessonRead\"') && studentHtml.includes('hint:')]);
+
+checks.push(['student curriculum navigator offers grade, subject, book, unit, and lesson selection', studentHtml.includes('id=\"curriculumGrade\"') && studentHtml.includes('id=\"curriculumSubject\"') && studentHtml.includes('id=\"curriculumBook\"') && studentHtml.includes('id=\"curriculumUnit\"') && studentHtml.includes('id=\"curriculumLesson\"')]);
+checks.push(['student curriculum navigator only lists approved lessons for the selected book and unit', studentHtml.includes('curriculumLessons.filter(l=>l.sourceBookId===bookId&&(!unitId||l.unitId===unitId))') && studentHtml.includes("d.lessons.filter(x=>x.status==='approved')")]);
+checks.push(['student can preview approved lesson content and launch an explanation from it', studentHtml.includes('id=\"curriculumLessonPreview\"') && studentHtml.includes('id=\"curriculumStudyLesson\"') && studentHtml.includes('sendTutorQuestion(`اشرح درس')]);
+
 let failed = 0;
 for (const [label, ok] of checks) { console.log(`${ok ? 'PASS' : 'FAIL'} ${label}`); if (!ok) failed++; }
 console.log(`\n${checks.length - failed}/${checks.length} source checks passed.`);
 if (failed) process.exitCode = 1;
 
 checks.push(['teacher request UI is compact with explain and voice controls only', fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('id="askBtn"') && fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('id="voiceBtn"') && !fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('data-teacher-prompt=')]);
+
