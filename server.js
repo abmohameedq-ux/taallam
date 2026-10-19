@@ -348,6 +348,22 @@ const server = http.createServer(async (req,res)=>{
   }
   if(req.method==='GET'&&pathname==='/api/admin/teacher-drafts'){if(!requireAdmin(req,res))return;const d=readData();return send(res,200,{lessons:d.lessons.filter(l=>l.createdByRole==='teacher').map(l=>({...l,createdByName:readTeachers().teachers.find(t=>t.id===l.createdBy)?.name||'معلّم'}))});}
   if(req.method==='POST'&&pathname==='/api/admin/teacher-drafts/review'){if(!requireAdmin(req,res))return;try{const b=await readBody(req,3000),d=readData(),l=d.lessons.find(x=>x.id===String(b.id||'')&&x.createdByRole==='teacher');if(!l)return send(res,404,{error:'مسودة المعلم غير موجودة.'});if(b.action==='approve'){l.status='approved';l.reviewRequired=false;l.reviewedAt=new Date().toISOString();}else if(b.action==='reject'){l.status='rejected';l.reviewRequired=true;}else return send(res,400,{error:'الإجراء غير معروف.'});fs.writeFileSync(dataFile,JSON.stringify(d,null,2),{mode:0o600});audit(String(process.env.ADMIN_EMAIL||'admin'),'teacher.lesson.review',{id:l.id,action:b.action,title:l.title});return send(res,200,{id:l.id,status:l.status});}catch(e){return send(res,400,{error:'تعذّرت مراجعة المسودة.'});}}
+  if(req.method==='DELETE' && pathname.startsWith('/api/admin/content/books/')){
+    if(!requireAdmin(req,res))return;
+    const id=pathname.slice('/api/admin/content/books/'.length).replace(/[^a-zA-Z0-9_-]/g,'');
+    const db=readData(); const index=(db.books||[]).findIndex(b=>b.id===id);
+    if(index<0)return send(res,404,{error:'الكتاب غير موجود.'});
+    const [book]=db.books.splice(index,1);
+    // Remove linked curriculum units/lessons so deleted books cannot remain visible elsewhere.
+    const removedLessonIds=new Set((db.lessons||[]).filter(l=>l.sourceBookId===id).map(l=>l.id));
+    db.lessons=(db.lessons||[]).filter(l=>l.sourceBookId!==id);
+    db.units=(db.units||[]).filter(u=>u.bookId!==id);
+    db.plans=(db.plans||[]).filter(p=>p.bookId!==id);
+    fs.writeFileSync(dataFile,JSON.stringify(db,null,2),{mode:0o600});
+    if(book.fileName){const file=path.join(uploadDir,path.basename(book.fileName));try{if(fs.existsSync(file))fs.unlinkSync(file)}catch(e){console.error('Could not remove deleted curriculum PDF:',e.message)}}
+    audit(String(process.env.ADMIN_EMAIL||'admin'),'curriculum.delete',{bookId:id,title:book.title,removedLessons:removedLessonIds.size});
+    return send(res,200,{deleted:true,bookId:id});
+  }
   if(req.method==='GET' && pathname==='/api/admin/content'){if(!requireAdmin(req,res))return;return send(res,200,readData());}
   if(req.method==='GET' && pathname==='/api/content'){const db=readData();db.books=(db.books||[]).map(({extractedText,...b})=>b);db.lessons=(db.lessons||[]).filter(l=>l.createdByRole!=='teacher'||l.status==='approved').filter(l=>!l.sourceBookId||l.status==='approved').map(l=>({...l,quizQuestions:(l.quizQuestions||[]).filter(q=>q.status==='approved')}));db.units=(db.units||[]).filter(u=>u.status==='approved');return send(res,200,db);}
   if(req.method==='POST' && pathname==='/api/curriculum/organize'){
@@ -449,6 +465,15 @@ const server = http.createServer(async (req,res)=>{
     if(!fs.existsSync(file)) return send(res,404,{error:'ملف الكتاب غير موجود على التخزين الحالي. على مدير المنصة تفعيل التخزين الدائم.'});
     const safeTitle=String(book.title||'كتاب المنهج').normalize('NFKD').replace(/[^\w\u0600-\u06FF -]/g,'').trim().slice(0,100)||'curriculum-book';
     res.writeHead(200,{'Content-Type':'application/pdf','Content-Disposition':`attachment; filename="${path.basename(book.fileName)}"; filename*=UTF-8''${encodeURIComponent(safeTitle)}.pdf`,'Content-Length':fs.statSync(file).size,'X-Content-Type-Options':'nosniff','Cache-Control':'public, max-age=300','Cross-Origin-Resource-Policy':'same-origin'});
+    return fs.createReadStream(file).pipe(res);
+  }
+  if(req.method==='GET' && pathname.startsWith('/api/public/curriculum/view/')){
+    const id=pathname.slice('/api/public/curriculum/view/'.length).replace(/[^a-zA-Z0-9_-]/g,'');
+    const book=readData().books.find(x=>x.id===id&&x.pdfUploaded===true&&x.fileName);
+    if(!book)return send(res,404,{error:'الكتاب غير موجود أو حُذف من المكتبة.'});
+    const file=path.join(uploadDir,path.basename(book.fileName));
+    if(!fs.existsSync(file))return send(res,404,{error:'ملف PDF غير موجود على التخزين الحالي. تحقق من إعداد التخزين الدائم في Railway.'});
+    res.writeHead(200,{'Content-Type':'application/pdf','Content-Disposition':`inline; filename=\"${path.basename(book.fileName)}\"`,'X-Content-Type-Options':'nosniff','Cache-Control':'no-store','X-Frame-Options':'SAMEORIGIN'});
     return fs.createReadStream(file).pipe(res);
   }
   if(req.method==='GET' && pathname.startsWith('/api/curriculum/pdf/')){

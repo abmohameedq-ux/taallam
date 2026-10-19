@@ -153,6 +153,12 @@ $('#deleteProfile').addEventListener('click',()=>{const ps=loadProfiles();if(ps.
 $('#resetProgress').addEventListener('click',()=>{if(confirm('هل تريد إعادة ضبط الدروس والمحاولات المحفوظة على هذا الجهاز؟')){const p=readProgress();writeProgress({completed:[],attempts:0,correct:0,name:p.name||'',lessonStats:{}});$('#progressStatus').textContent='تمت إعادة ضبط التقدم على هذا الجهاز.'}});
 $('#learningRecommendations').addEventListener('click',e=>{const b=e.target.closest('[data-review-lesson]');if(b){const id=b.dataset.reviewLesson;const lesson=allLessons().find(x=>x.id===id);if(lesson){openLesson(id);$('#learn').scrollIntoView({behavior:'smooth',block:'start'});}}});
 renderLessons();refresh();refreshPublicBooks();renderProfileControls();renderProgress();checkParentSession();
+// Keep curriculum views synchronized across admin/student pages without requiring a manual reload.
+let curriculumSyncBusy=false;
+async function syncCurriculumViews(){if(curriculumSyncBusy||document.visibilityState==='hidden')return;curriculumSyncBusy=true;try{await refreshPublicBooks();await refresh();}finally{curriculumSyncBusy=false}}
+setInterval(syncCurriculumViews,20000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')syncCurriculumViews()});
+window.addEventListener('focus',syncCurriculumViews);
 
 // إدارة المحتوى محمية بجلسة مدير مستقلة عن حسابات أولياء الأمور.
 let adminAuthenticated=false;

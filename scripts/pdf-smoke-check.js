@@ -33,7 +33,7 @@ const checks = [
   ,['unmatched questions do not fall back to general answers', server.includes('page-index-unavailable') && server.includes('حتى لا أشرح صفحة خاطئة')]
   ,['lesson-number requests resolve against extracted book headings', server.includes('lessonRequest&&ordinalMatch') && server.includes('inferOutline(text)')]
   ,['page requests do not pretend extracted text preserves PDF page numbers', server.includes('page-index-unavailable') && server.includes('حتى لا أشرح صفحة خاطئة')]
-  ,['student UI uses a compact free-form lesson request instead of a long prompt row', fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('placeholder="اكتب: اشرح الدرس الأول"') && !fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('data-teacher-prompt=')]
+  ,['student UI uses a compact free-form lesson request instead of a long prompt row', fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('placeholder="مثال: اشرح لي الدرس الأول"') && !fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('data-teacher-prompt=')]
   ,['AI prompt explicitly restricts answer to selected book excerpt', server.includes('أجب اعتمادًا على المقتطف من كتاب المنهج المحدد فقط')]
   ,['public question UI provides a concise curriculum book selector', fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('id="curriculumBookSelect"') && fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('اختر كتاب المنهج')]
   ,['question UI blocks send without a selected book', fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('اختر كتاب المنهج أولًا حتى يكون الشرح مرتبطًا بمحتواه.')]
@@ -74,7 +74,7 @@ for (const name of ['manifest-public.webmanifest','manifest-admin.webmanifest','
 const installer = fs.readFileSync(path.join(root,'public','install.js'),'utf8');
 const serviceWorker = fs.readFileSync(path.join(root,'public','sw.js'),'utf8');
 checks.push(['installer keeps one declared manifest per portal', installer.includes("document.querySelector('link[rel=\\\"manifest\\\"]')")]);
-checks.push(['public service worker cache is versioned for the three-app PWA architecture', serviceWorker.includes('taallam-shell-v2.60.0')]);
+checks.push(['public service worker cache is versioned for the three-app PWA architecture', serviceWorker.includes('taallam-shell-v2.63.0')]);
 for (const [role, scope, cache] of [['admin','/admin/','taallam-admin-shell-v2.57.0'],['school-admin','/school-admin/','taallam-school-admin-shell-v2.57.0']]) { const worker=fs.readFileSync(path.join(root,'public',role,'sw.js'),'utf8'); checks.push([`${role} has an independent scoped service worker`, worker.includes(`const CACHE_NAME = '${cache}'`) && worker.includes(`caches.match('${scope}')`)]); }
 checks.push(['admin portals register separate scoped service workers', installer.includes("role==='admin'?'/admin/sw.js':role==='school-admin'?'/school-admin/sw.js':'/sw.js'") && installer.includes("scope,updateViaCache:'none'")]);
 checks.push(['service worker caches the three installable manifests and distinct app icons', serviceWorker.includes('/manifest-public.webmanifest')&&serviceWorker.includes('/manifest-admin.webmanifest')&&serviceWorker.includes('/manifest-school-admin.webmanifest')&&serviceWorker.includes('/icons/taallam-admin-512.png')&&serviceWorker.includes('/icons/taallam-school-512.png')]);
