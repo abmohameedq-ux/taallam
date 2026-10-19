@@ -1,11 +1,11 @@
 {
   "name": "taallam-ma-alhaitham",
-  "version": "2.33.0",
+  "version": "2.38.0",
   "private": true,
-  "description": "منصة تعليمية عربية متعددة المدارس مع تعليم مرتبط بمحتوى PDF المستخرج",
+  "description": "منصة تعليمية عربية مع محادثة صوتية مستمرة واختبارات تكاملية",
   "scripts": {
     "start": "node server.js",
-    "test": "node scripts/pdf-smoke-check.js"
+    "test": "node scripts/pdf-smoke-check.js && node scripts/http-smoke-check.js"
   },
   "engines": {
     "node": ">=18"

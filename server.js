@@ -454,8 +454,7 @@ const server = http.createServer(async (req,res)=>{
   if(req.method==='GET' && pathname==='/api/admin/pdf-status'){
     if(!requireAdmin(req,res))return;
     const checkCommand=async(command,args=[])=>{try{const r=await execFileAsync(command,args,{timeout:5000,maxBuffer:200000});return {available:true,version:String(r.stdout||r.stderr||'').trim().split('\n')[0].slice(0,180)}}catch(e){return {available:false,error:e.code==='ENOENT'?'غير مثبت':String(e.message||'تعذّر الفحص').slice(0,120)}}};
-    const [poppler,tesseract,ara,eng]=await Promise.all([checkCommand('pdftoppm',['-v']),checkCommand('tesseract',['--version']),checkCommand('tesseract',['--list-langs']),checkCommand('tesseract',['--list-langs'])]);
-    const langs=(ara.available?String(ara.version)+'\n':'')+(eng.available?String(eng.version):'');
+    const [poppler,tesseract]=await Promise.all([checkCommand('pdftoppm',['-v']),checkCommand('tesseract',['--version'])]);
     let languageList=[];if(tesseract.available){try{const r=await execFileAsync('tesseract',['--list-langs'],{timeout:5000,maxBuffer:200000});languageList=String(r.stdout||r.stderr).split(/\r?\n/).map(x=>x.trim()).filter(x=>x&&x!=='List of available languages:')}catch{}}
     return send(res,200,{pdfParser:{available:typeof pdfParse==='function',required:true},ocr:{available:poppler.available&&tesseract.available&&languageList.includes('ara')&&languageList.includes('eng'),poppler,tesseract,arabic:languageList.includes('ara'),english:languageList.includes('eng'),languages:languageList},storage:{dataDir,configured:!!process.env.DATA_DIR}});
   }

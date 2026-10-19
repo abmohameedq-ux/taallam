@@ -23,12 +23,15 @@ const checks = [
   ['OCR prerequisites and limitations documented', fs.readFileSync(path.join(root,'README.md'),'utf8').includes('Tesseract') && fs.readFileSync(path.join(root,'README.md'),'utf8').includes('أول 100 صفحة')]
   ,['Docker image installs Arabic and English OCR prerequisites', fs.readFileSync(path.join(root,'Dockerfile'),'utf8').includes('tesseract-ocr-ara') && fs.readFileSync(path.join(root,'Dockerfile'),'utf8').includes('tesseract-ocr-eng') && fs.readFileSync(path.join(root,'Dockerfile'),'utf8').includes('poppler-utils')]
   ,['PDF runtime diagnostic is admin-protected', server.includes("pathname==='/api/admin/pdf-status'") && server.includes('pdfParser:{available:typeof pdfParse===')]
-  ,['Docker deployment and persistent storage documented', fs.readFileSync(path.join(root,'README.md'),'utf8').includes('الإصدار 2.33.0') && fs.readFileSync(path.join(root,'README.md'),'utf8').includes('DATA_DIR=/app/data')]
+  ,['Docker deployment and persistent storage documented', fs.readFileSync(path.join(root,'README.md'),'utf8').includes('DATA_DIR=/app/data') && fs.readFileSync(path.join(root,'Dockerfile'),'utf8').includes('ENV DATA_DIR=/app/data')]
   ,['curriculum book is mandatory for teacher questions', server.includes('اختر كتابًا من مكتبة المناهج حتى تكون الإجابة مستندة إلى محتوى الكتاب')]
   ,['unmatched questions do not fall back to general answers', server.includes('لن أستبدل محتوى المنهج بإجابة من خارج الكتاب') && server.includes("if(!best)return {book:chosen[0],excerpt:'',matched:false}")]
   ,['AI prompt explicitly restricts answer to selected book excerpt', server.includes('أجب اعتمادًا على المقتطف من كتاب المنهج المحدد فقط')]
   ,['public question UI marks book as required', fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('اختر كتاب المنهج الذي تريد السؤال عنه (مطلوب)')]
-  ,['question UI blocks send without a selected book', fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('اختر كتاب المنهج أولًا حتى تكون الإجابة من محتواه.')]
+  ,['question UI blocks send without a selected book', fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('اختر كتاب المنهج أولًا حتى تكون الإجابة مرتبطة بمحتواه.')]
+  ,['voice conversation re-listens after the answer', fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('startListening()') && fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('انتهت الإجابة. يمكنك طرح سؤالك التالي.') ]
+  ,['voice stop cancels recognition and speech', fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('function stopVoiceConversation') && fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('speechSynthesis.cancel()')]
+  ,['voice errors provide microphone and network guidance', fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('الميكروفون غير مسموح') && fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('تعذّر الاتصال بخدمة التعرّف على الكلام')]
 ];
 let failed = 0;
 for (const [label, ok] of checks) { console.log(`${ok ? 'PASS' : 'FAIL'} ${label}`); if (!ok) failed++; }
