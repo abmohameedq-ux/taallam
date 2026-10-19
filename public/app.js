@@ -1,209 +1,110 @@
-(() => {
-  "use strict";
-  const $ = (id) => document.getElementById(id);
-  const STORAGE_KEY = "taallamAlhaitham.v1";
-  const initialState = { profile: null, lessonsDone: 0, correctCount: 0, completed: false };
-  let state = loadState();
-  let selectedAvatar = state.profile?.avatar || "🧒";
-  let recognition = null;
-  let listening = false;
-  let speaking = false;
-  let currentSubject = "math";
-  let toastTimer = null;
+const $=s=>document.querySelector(s);const $$=s=>[...document.querySelectorAll(s)];
+const demos=[
+{id:'d1',title:'نتعلّم الجمع بالتفاح',subject:'الرياضيات',grade:'الأول الأساسي',icon:'🍎',content:'عندما نجمع مجموعتين، نعرف كم صار لدينا في المجموع. إذا كان لدينا تفاحتان ثم أضفنا تفاحة واحدة، يصبح لدينا ثلاث تفاحات: ٢ + ١ = ٣.',question:'معك تفاحتان وأخذت تفاحة أخرى، كم تفاحة أصبحت معك؟',answers:['٢','٣','٤'],correct:1},
+{id:'d2',title:'حرف الألف وصوته',subject:'اللغة العربية',grade:'الأول الأساسي',icon:'أ',content:'هذا حرف الألف (أ). نسمع صوته في أول كلمة «أسد» وكلمة «أرنب». انطق الكلمة بهدوء، ثم حاول أن تجد كلمة أخرى تبدأ بحرف الألف.',question:'أي كلمة تبدأ بحرف الألف؟',answers:['باب','أسد','قلم'],correct:1},
+{id:'d3',title:'ماذا يحتاج النبات؟',subject:'العلوم',grade:'الثاني الأساسي',icon:'🌱',content:'يحتاج النبات إلى الماء والضوء والهواء لينمو. تمتص الجذور الماء من التربة، وتساعد الأوراق النبات على الاستفادة من ضوء الشمس. لا نغرق النبات بالماء؛ بل نسقيه بقدر مناسب.',question:'ما الذي يساعد النبات على النمو؟',answers:['الماء والضوء','إغلاقه في صندوق','منعه من الهواء'],correct:0}
+];let extraLessons=[],activeFilter='الكل',activeGrade='الكل',toastTimer;
+const PROGRESS_KEY='taallam-progress-v21', PROFILES_KEY='taallam-profiles-v28', ACTIVE_PROFILE_KEY='taallam-active-profile-v28';
+const emptyProgress=(name='')=>({completed:[],attempts:0,correct:0,name,lessonStats:{},answerHistory:[]});
+function loadProfiles(){try{let profiles=JSON.parse(localStorage.getItem(PROFILES_KEY));if(!Array.isArray(profiles)||!profiles.length){let legacy={};try{legacy=JSON.parse(localStorage.getItem(PROGRESS_KEY))||{}}catch{};profiles=[{id:'child-1',name:String(legacy.name||'').trim()||'الطفل الأول',progress:{completed:Array.isArray(legacy.completed)?legacy.completed:[],attempts:Number(legacy.attempts)||0,correct:Number(legacy.correct)||0,name:legacy.name||'',lessonStats:legacy.lessonStats&&typeof legacy.lessonStats==='object'?legacy.lessonStats:{},answerHistory:Array.isArray(legacy.answerHistory)?legacy.answerHistory:[]}}];localStorage.setItem(PROFILES_KEY,JSON.stringify(profiles));localStorage.setItem(ACTIVE_PROFILE_KEY,'child-1')}return profiles}catch{return [{id:'child-1',name:'الطفل الأول',progress:emptyProgress()}]}}
+function activeProfileId(){const ps=loadProfiles();let id=localStorage.getItem(ACTIVE_PROFILE_KEY);if(!ps.some(p=>p.id===id)){id=ps[0].id;localStorage.setItem(ACTIVE_PROFILE_KEY,id)}return id}
+function readProgress(){const ps=loadProfiles(),p=ps.find(x=>x.id===activeProfileId())?.progress||emptyProgress();return {completed:Array.isArray(p.completed)?p.completed:[],attempts:Number(p.attempts)||0,correct:Number(p.correct)||0,name:p.name||'',lessonStats:p.lessonStats&&typeof p.lessonStats==='object'?p.lessonStats:{},answerHistory:Array.isArray(p.answerHistory)?p.answerHistory:[]}}
+function writeProgress(p){const ps=loadProfiles(),id=activeProfileId(),profile=ps.find(x=>x.id===id);if(profile){p.answerHistory=Array.isArray(p.answerHistory)?p.answerHistory.slice(0,100):[];profile.progress=p;profile.name=p.name||profile.name;localStorage.setItem(PROFILES_KEY,JSON.stringify(ps));localStorage.setItem(PROGRESS_KEY,JSON.stringify(p))}renderProfileControls();renderProgress();if(typeof renderLessons==='function')renderLessons();syncProfilesToServer()}
+function renderProfileControls(){const ps=loadProfiles(),id=activeProfileId(),select=$('#profileSelect');if(select){select.innerHTML=ps.map(p=>`<option value="${esc(p.id)}" ${p.id===id?'selected':''}>${esc(p.name||'طفل')}</option>`).join('');}const del=$('#deleteProfile');if(del)del.disabled=ps.length<=1;}
+function recordAnswer(lessonId,lessonTitle,correct,question='',chosen='',expected=''){const p=readProgress();const stamp=new Date().toISOString();p.attempts++;if(correct)p.correct++;p.lessonStats=p.lessonStats||{};const st=p.lessonStats[lessonId]||{title:lessonTitle,attempts:0,correct:0,wrong:0,lastAttempt:null};st.title=lessonTitle;st.attempts++;if(correct)st.correct++;else st.wrong++;st.lastAttempt=stamp;st.lastCorrect=!!correct;p.lessonStats[lessonId]=st;p.answerHistory=Array.isArray(p.answerHistory)?p.answerHistory:[];p.answerHistory.unshift({id:'a-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,6),lessonId,lessonTitle,question:String(question).slice(0,500),chosen:String(chosen).slice(0,250),expected:String(expected).slice(0,250),correct:!!correct,at:stamp});p.answerHistory=p.answerHistory.slice(0,100);writeProgress(p)}
+function renderProgress(){
+ const p=readProgress(),profiles=loadProfiles(),current=profiles.find(x=>x.id===activeProfileId());
+ const label=$('#activeProfileLabel');if(label)label.textContent='ملف '+(current?.name||'الطفل');
+ $('#completedCount').textContent=arabicNum(p.completed.length);$('#attemptCount').textContent=arabicNum(p.attempts);$('#correctCount').textContent=arabicNum(p.correct);
+ if(document.activeElement!==$('#studentName'))$('#studentName').value=p.name||'';
+ const lessons=allLessons(),lessonMap=new Map(lessons.map(l=>[l.id,l]));
+ const stats=Object.entries(p.lessonStats||{}).map(([id,s])=>({id,...s,subject:lessonMap.get(id)?.subject||'مادة غير محددة'}));
+ const weak=stats.filter(s=>s.lastCorrect===false || (s.lastCorrect===undefined&&s.wrong>0)).sort((a,b)=>b.wrong-a.wrong||a.correct-b.correct).slice(0,3);
+ const total=p.attempts,accuracy=total?Math.round(p.correct/total*100):0;
+ const bySubject={};stats.forEach(s=>{const x=bySubject[s.subject]||(bySubject[s.subject]={attempts:0,correct:0,wrong:0,lessons:0});x.attempts+=Number(s.attempts)||0;x.correct+=Number(s.correct)||0;x.wrong+=Number(s.wrong)||0;x.lessons++;});
+ const subjects=Object.entries(bySubject).sort((a,b)=>b[1].attempts-a[1].attempts);
+ const recent=stats.filter(s=>s.lastAttempt).sort((a,b)=>new Date(b.lastAttempt)-new Date(a.lastAttempt)).slice(0,5);
+ const answerHistory=(Array.isArray(p.answerHistory)?p.answerHistory:[]).slice(0,8);
+ const dateLabel=v=>{const d=new Date(v);return Number.isNaN(d.getTime())?'تاريخ غير متاح':new Intl.DateTimeFormat('ar',{dateStyle:'medium',timeStyle:'short'}).format(d)};
+ const target=$('#learningRecommendations');if(!target)return;
+ target.innerHTML=`<div class="learning-summary"><b>مؤشر الإجابات الصحيحة</b><strong>${arabicNum(accuracy)}٪</strong><div class="accuracy-track"><span style="width:${accuracy}%"></span></div><small>المؤشر مبني على المحاولات المسجلة للملف النشط.</small></div>
+ <div class="parent-insight-grid"><article class="parent-insight"><span>📚</span><b>${arabicNum(p.completed.length)}</b><small>دروس فُتحت</small></article><article class="parent-insight"><span>✍️</span><b>${arabicNum(total)}</b><small>إجمالي الإجابات</small></article><article class="parent-insight"><span>🎯</span><b>${arabicNum(total?Math.max(0,total-p.correct):0)}</b><small>إجابات تحتاج تدريبًا</small></article></div>
+ <h3>مستوى الطفل حسب المادة</h3>${subjects.length?`<div class="subject-progress-list">${subjects.map(([name,v])=>{const pct=v.attempts?Math.round(v.correct/v.attempts*100):0;return `<article class="subject-progress"><div class="subject-progress-head"><b>${esc(name)}</b><strong>${arabicNum(pct)}٪</strong></div><div class="accuracy-track"><span style="width:${pct}%"></span></div><small>${arabicNum(v.attempts)} محاولة · ${arabicNum(v.correct)} صحيحة · ${arabicNum(v.wrong)} تحتاج إلى مراجعة</small></article>`}).join('')}</div>`:'<p class="form-status">ستظهر مقارنة المواد بعد أن يبدأ الطفل بحل الأنشطة.</p>'}
+ <h3>خطوتك التعليمية التالية</h3>${weak.length?`<p>ابدأ بالدروس التي تكررت فيها الإجابات غير الصحيحة، وشجّع الطفل على قراءة الشرح ثم المحاولة مجددًا.</p><div class="recommendation-list">${weak.map(s=>`<div class="recommendation-item"><div><b>${esc(s.title||'درس تعليمي')}</b><small>${esc(s.subject)} · ${arabicNum(s.wrong)} إجابة غير صحيحة من ${arabicNum(s.attempts)} محاولة</small></div><button class="btn secondary" type="button" data-review-lesson="${esc(s.id)}">راجع الدرس</button></div>`).join('')}</div>`:'<p class="form-status">لم تُسجّل أخطاء بعد. واصل التعلّم، وستظهر هنا توصيات عند الحاجة.</p>'}
+ <h3>آخر الدروس التي تدرب عليها</h3>${recent.length?`<div class="recent-learning-list">${recent.map(s=>`<article class="recent-learning-item"><div><b>${esc(s.title||'درس تعليمي')}</b><small>${esc(s.subject)} · ${dateLabel(s.lastAttempt)}</small></div><span class="recent-score">${arabicNum(s.correct)} صحيحة / ${arabicNum(s.attempts)} محاولة</span></article>`).join('')}</div>`:'<p class="form-status">لا توجد محاولات مسجلة حتى الآن.</p>'}<h3>سجل آخر الإجابات</h3>${answerHistory.length?`<div class="answer-history-list">${answerHistory.map(a=>`<article class="answer-history-item"><span class="history-mark ${a.correct?'history-correct':'history-wrong'}">${a.correct?'✓':'↻'}</span><div><b>${esc(a.lessonTitle)}</b><small>${esc(a.question||'نشاط تعليمي')} · ${dateLabel(a.at)}</small><p>إجابتك: ${esc(a.chosen||'—')}${a.correct?'':` · الإجابة الصحيحة: ${esc(a.expected||'راجع الشرح')}`}</p></div></article>`).join('')}</div>`:'<p class="form-status">سيظهر سجل الإجابات هنا بعد حل الأنشطة.</p>'}`;
+}
+function arabicNum(n){return new Intl.NumberFormat('ar').format(n)}
+function toast(s){const t=$('#toast');t.textContent=s;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2600)}
+function allLessons(){return [...demos,...extraLessons.map(x=>({...x,icon:x.subject==='الرياضيات'?'🔢':x.subject==='العلوم'?'🔬':'📖'}))]}
+function renderLessons(){const q=$('#lessonSearch').value.trim().toLowerCase(),p=readProgress(),all=allLessons();const gradeSelect=$('#gradeFilter');if(gradeSelect){const old=gradeSelect.value;const grades=[...new Set(all.map(x=>String(x.grade||'غير محدد').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));gradeSelect.innerHTML='<option value="الكل">كل الصفوف</option>'+grades.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join('');gradeSelect.value=grades.includes(old)?old:(old==='الكل'?'الكل':'الكل');activeGrade=gradeSelect.value;}const list=all.filter(x=>{const stat=p.lessonStats?.[x.id]||{};const matchesSubject=activeFilter==='الكل'||activeFilter==='__review'||x.subject===activeFilter;const matchesGrade=activeGrade==='الكل'||String(x.grade||'غير محدد').trim()===activeGrade;const matchesQuery=[x.title,x.subject,x.grade,x.content].join(' ').toLowerCase().includes(q);const matchesReview=activeFilter!=='__review'||(stat.lastCorrect===false || (stat.lastCorrect===undefined&&Number(stat.wrong||0)>0));return matchesSubject&&matchesGrade&&matchesQuery&&matchesReview;});$('#lessonGrid').innerHTML=list.length?list.map(x=>{const stat=p.lessonStats?.[x.id]||{};const completed=p.completed.includes(x.id);const needsReview=stat.lastCorrect===false || (stat.lastCorrect===undefined&&Number(stat.wrong||0)>0);return `<article class="lesson-card"><div class="lesson-top"><span class="lesson-icon">${esc(x.icon)}</span><span class="tag">${esc(x.subject||'عام')}</span></div><h3>${esc(x.title)}</h3><p>${esc(x.grade||'درس تعليمي')} · ${completed?'✓ سبق فتحه':'درس جديد'}${needsReview?` · يحتاج مراجعة (${arabicNum(stat.wrong)} أخطاء)`:''}</p><button class="btn secondary" data-open="${esc(x.id)}">${needsReview?'راجع الدرس ←':completed?'واصل التعلّم ←':'ابدأ الدرس ←'}</button></article>`}).join(''):'<div class="empty">'+(activeFilter==='__review'?'رائع! لا توجد دروس مسجلة للمراجعة بعد. أجب عن الأنشطة لتحديد الدروس التي تحتاج إلى تدريب إضافي.':'لا توجد دروس مطابقة. جرّب تغيير الصف أو كلمة البحث.')+'</div>';const status=$('#lessonListStatus');if(status)status.textContent=`تُعرض ${arabicNum(list.length)} من ${arabicNum(all.length)} درسًا${activeGrade!=='الكل'?' · '+activeGrade:''}${activeFilter==='__review'?' · دروس للمراجعة':''}`;$$('[data-open]').forEach(b=>b.addEventListener('click',()=>openLesson(b.dataset.open)));}
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function openLesson(id){
+ const x=allLessons().find(y=>y.id===id);if(!x)return;
+ const p=readProgress();if(!p.completed.includes(id)){p.completed.push(id);writeProgress(p)}
+ const d=$('#lessonDetail');d.classList.remove('hidden');
+ const questions=[];
+ if(x.question&&Array.isArray(x.answers)&&x.answers.length)questions.push({question:x.question,answers:x.answers,correct:Number(x.correct),key:'base'});
+ (x.quizQuestions||[]).filter(q=>q.status==='approved'&&q.question&&Array.isArray(q.answers)&&q.answers.length).forEach((q,i)=>questions.push({question:q.question,answers:q.answers,correct:Number(q.correct),key:'extra-'+i}));
+ d.innerHTML=`<div class="lesson-top"><span class="tag">${esc(x.subject||'عام')}</span><button class="btn secondary" id="closeLesson">إغلاق ×</button></div><h3>${esc(x.title)}</h3><p class="lesson-grade">${esc(x.grade||'درس تعليمي')} · اقرأ الشرح ثم أجب عن النشاط.</p><div class="lesson-explanation">${esc(x.content||'لا يوجد شرح لهذا الدرس حتى الآن.')}</div><button class="btn secondary" id="speakLesson" type="button">🔊 استمع إلى الشرح</button>${questions.length?`<section class="student-activity" aria-label="نشاط الدرس"><div class="activity-heading"><span class="eyebrow">وقت التجربة</span><h3>هيا نختبر ما تعلّمناه!</h3><p>اختر إجابة واحدة لكل سؤال. ستعرف النتيجة والتفسير بعد اختيارك.</p><div class="activity-progress"><span id="activityProgressFill"></span></div><small id="activityProgressText">أجبت عن ٠ من ${arabicNum(questions.length)} أسئلة</small></div><div id="activityQuestions">${questions.map((q,i)=>`<article class="activity-question" data-question-card="${i}"><span class="question-number">السؤال ${arabicNum(i+1)} من ${arabicNum(questions.length)}</span><h4>${esc(q.question)}</h4><button type="button" class="hint-button" data-show-hint="${i}">💡 تلميح يساعدني</button><p class="activity-hint hidden" data-hint-text="${i}" role="status">${esc(q.hint||('تذكّر الفكرة الأساسية في الشرح: '+String(x.content||'').slice(0,180)))}</p><div class="activity-options">${q.answers.map((a,j)=>`<button type="button" class="activity-option" data-activity-answer="${i}" data-option="${j}">${esc(a||`اختيار ${j+1}`)}</button>`).join('')}</div><p class="activity-feedback" data-activity-feedback="${i}" role="status" aria-live="polite"></p></article>`).join('')}</div><div id="activityResult" class="activity-result hidden" role="status" aria-live="polite"></div><div class="activity-actions"><button type="button" class="btn primary hidden" id="retryActivity">أجرّب مرة أخرى ↻</button></div></section>`:'<div class="empty">هذا الدرس لا يحتوي على نشاط معتمد بعد. يمكنك الاستماع إلى الشرح ومراجعته.</div>'}`;
+ $('#closeLesson').onclick=()=>d.classList.add('hidden');$('#speakLesson').onclick=()=>speak(x.title+'. '+x.content);
+ if(questions.length){let answered=new Set(),score=0;const updateProgress=()=>{const n=answered.size;$('#activityProgressFill').style.width=(n/questions.length*100)+'%';$('#activityProgressText').textContent=`أجبت عن ${arabicNum(n)} من ${arabicNum(questions.length)} أسئلة`;};
+ $$('[data-show-hint]').forEach(b=>b.onclick=()=>{const hint=d.querySelector(`[data-hint-text="${b.dataset.showHint}"]`);if(hint){hint.classList.toggle('hidden');b.textContent=hint.classList.contains('hidden')?'💡 تلميح يساعدني':'إخفاء التلميح';}});
+ $$('[data-activity-answer]').forEach(b=>b.onclick=()=>{const qi=Number(b.dataset.activityAnswer);if(answered.has(qi))return;const q=questions[qi],choice=Number(b.dataset.option),correct=choice===q.correct;answered.add(qi);if(correct)score++;recordAnswer(x.id,x.title,correct,q.question,q.answers[choice],q.answers[q.correct]);const card=d.querySelector(`[data-question-card="${qi}"]`);card.querySelectorAll('[data-activity-answer]').forEach(opt=>{opt.disabled=true;if(Number(opt.dataset.option)===q.correct)opt.classList.add('is-correct');else if(opt===b&&!correct)opt.classList.add('is-wrong');});const fb=card.querySelector('[data-activity-feedback]');fb.className='activity-feedback '+(correct?'feedback-correct':'feedback-retry');fb.textContent=correct?(q.explanation||'أحسنت! إجابة صحيحة 🌟'):((q.explanation?'فكّر في السبب: '+q.explanation+' ':'محاولة جيدة! اقرأ الشرح مرة أخرى، ثم حاول مجددًا. ')+`الإجابة الصحيحة: ${q.answers[q.correct]??'راجع الشرح ثم حاول مجددًا.'}`);updateProgress();if(answered.size===questions.length){const result=$('#activityResult');const percent=Math.round(score/questions.length*100);result.classList.remove('hidden');result.innerHTML=`<div class="result-star">${percent>=80?'🌟':percent>=50?'👏':'💪'}</div><h4>${percent===100?'رائع! أجبت عن جميع الأسئلة بشكل صحيح!':percent>=80?'أداء ممتاز، واصل التقدّم!':percent>=50?'عمل جيد، راجع الإجابات وتدرّب أكثر.':'لا بأس، التعلّم يحتاج إلى المحاولة. اقرأ الشرح ثم أعد النشاط.'}</h4><p>نتيجتك: <strong>${arabicNum(score)} من ${arabicNum(questions.length)}</strong> (${arabicNum(percent)}٪)</p>`;$('#retryActivity').classList.remove('hidden');}});
+ $('#retryActivity').onclick=()=>openLesson(id);
+ }
+ d.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function speak(text){if(!('speechSynthesis'in window)){toast('ميزة القراءة الصوتية غير مدعومة في هذا المتصفح.');return}speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang='ar';u.rate=.86;const voices=speechSynthesis.getVoices();const v=voices.find(v=>v.lang.toLowerCase().startsWith('ar'));if(v)u.voice=v;u.onerror=()=>toast('تعذّر تشغيل الصوت. تحقق من إعدادات الصوت في جهازك.');speechSynthesis.speak(u)}
+async function api(path,data){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const out=await r.json().catch(()=>({}));if(!r.ok)throw Error(out.error||'تعذّر الحفظ');return out}
+let parentAuthenticated=false,parentSyncBusy=false;
+function profileSnapshot(){return loadProfiles().map(p=>({id:p.id,name:p.name,progress:p.progress||emptyProgress(p.name)}))}
+async function syncProfilesToServer(){if(!parentAuthenticated||parentSyncBusy)return;parentSyncBusy=true;try{const r=await fetch('/api/parent/profiles',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({profiles:profileSnapshot()})});const out=await r.json().catch(()=>({}));if(!r.ok)throw Error(out.error||'تعذّر مزامنة ملفات الأطفال');const s=$('#accountStatus');if(s)s.textContent='تم حفظ ملفات الأطفال وتقدّمهم على الخادم.';}catch(e){const s=$('#accountStatus');if(s)s.textContent='تعذّرت المزامنة الآن؛ بيانات الجهاز ما زالت محفوظة محليًا. '+e.message;}finally{parentSyncBusy=false}}
+function applyRemoteProfiles(profiles){if(!Array.isArray(profiles)||!profiles.length)return false;const safe=profiles.slice(0,8).map(p=>({id:String(p.id||('child-'+Math.random().toString(36).slice(2,8))),name:String(p.name||'الطفل').slice(0,40),progress:{completed:Array.isArray(p.progress?.completed)?p.progress.completed:[],attempts:Number(p.progress?.attempts)||0,correct:Number(p.progress?.correct)||0,name:String(p.progress?.name||p.name||'').slice(0,40),lessonStats:p.progress?.lessonStats&&typeof p.progress.lessonStats==='object'?p.progress.lessonStats:{},answerHistory:Array.isArray(p.progress?.answerHistory)?p.progress.answerHistory.slice(0,100):[]}}));localStorage.setItem(PROFILES_KEY,JSON.stringify(safe));if(!safe.some(p=>p.id===localStorage.getItem(ACTIVE_PROFILE_KEY)))localStorage.setItem(ACTIVE_PROFILE_KEY,safe[0].id);writeProgress(safe.find(p=>p.id===activeProfileId())?.progress||safe[0].progress);renderProfileControls();renderProgress();return true}
+function setAccountUI(auth,email){parentAuthenticated=!!auth;const status=$('#accountStatus');if(status)status.textContent=auth?'تم تسجيل الدخول: '+email+'. ملفات الأطفال تُزامَن مع الخادم عند تغيّرها.':'لم يتم تسجيل الدخول. التقدم محفوظ محليًا على هذا الجهاز فقط.';$('#parentLogin').classList.toggle('hidden',!!auth);$('#parentRegister').classList.toggle('hidden',!!auth);$('#parentLogout').classList.toggle('hidden',!auth);$('#parentPassword').value='';}
+async function parentAccount(action){const email=$('#parentEmail').value.trim(),password=$('#parentPassword').value;if(!email||!password){$('#accountStatus').textContent='أدخل البريد الإلكتروني وكلمة المرور.';return}const btn=action==='login'?$('#parentLogin'):$('#parentRegister');btn.disabled=true;try{const out=await api('/api/parent/'+action,{email,password});setAccountUI(true,out.email);if(action==='login'&&Array.isArray(out.profiles)&&out.profiles.length){applyRemoteProfiles(out.profiles);toast('تم استرجاع ملفات الأطفال من حسابك.')}else{await syncProfilesToServer();toast(action==='login'?'تم تسجيل الدخول.':'تم إنشاء حساب ولي الأمر.')} }catch(e){$('#accountStatus').textContent=e.message;}finally{btn.disabled=false}}
+async function checkParentSession(){try{const r=await fetch('/api/parent/me');const out=await r.json();if(out.authenticated){setAccountUI(true,out.email);if(Array.isArray(out.profiles)&&out.profiles.length)applyRemoteProfiles(out.profiles);else await syncProfilesToServer();}}catch{}}
+$('#parentLogin').addEventListener('click',()=>parentAccount('login'));$('#parentRegister').addEventListener('click',()=>parentAccount('register'));$('#parentAccountForm').addEventListener('submit',e=>{e.preventDefault();parentAccount('login')});$('#parentLogout').addEventListener('click',async()=>{try{await api('/api/parent/logout',{});}catch{}setAccountUI(false,'');});
 
-  const lessons = {
-    math: {
-      tag: "مغامرة الرياضيات", title: "نجمع التفاحات 🍎",
-      intro: "خلّينا نشوف كم تفاحة عندنا إذا جمعنا المجموعتين.",
-      caption: "عدّ التفاحات واحدة واحدة، وبعدها قل لنا الناتج.",
-      question: "تفاحتان + تفاحة واحدة = كم تفاحة؟",
-      explanation: "أهلًا يا بطل! عندنا تفاحتان هنا، وتفاحة واحدة هناك. نعدّهم مع بعض: واحد، اثنان، ثلاثة. إذن اثنان زائد واحد يساوي ثلاثة. شاطر! جرّب تختار الإجابة الصحيحة.",
-      answers: ["٢", "٣", "٤"], correct: "3", visuals: ["🍎","🍎","🍎"]
-    },
-    reading: {
-      tag: "مغامرة الحروف", title: "نتعرّف على حرف الألف أ",
-      intro: "كل حرف له صوت، واليوم سنتعرّف على حرف الألف.",
-      caption: "شوف الحرف، واسمع صوته، ثم اختَر الحرف الصحيح.",
-      question: "أيّ واحد هو حرف الألف؟",
-      explanation: "يا بطل، هذا حرف الألف: أ. نقول أَ مثل أسد، وأُ مثل أُم، وإِ مثل إبرة. الحروف تساعدنا نقرأ الكلمات. شوف الخيارات واختَر حرف الألف.",
-      answers: ["ب", "أ", "ت"], correct: "أ", visuals: ["أ","🦁","📖"]
-    },
-    science: {
-      tag: "مغامرة العلوم", title: "ماذا يحتاج النبات؟ 🌱",
-      intro: "النبات كائن حي، ويساعده الماء وضوء الشمس على النمو.",
-      caption: "فكّر: ما الشيء الذي يحتاجه النبات ليكبر؟",
-      question: "أيّ شيء يساعد النبات على النمو؟",
-      explanation: "تخيّل نبتة صغيرة. تحتاج إلى الماء، وضوء الشمس، والهواء، وتربة مناسبة. إذا نسينا نسقيها، قد تذبل. الآن اختَر الشيء الذي تحتاجه النبتة.",
-      answers: ["ماء 💧", "حذاء 👟", "كرة ⚽"], correct: "ماء 💧", visuals: ["🌱","☀️","💧"]
-    }
-  };
+function formObject(form){return Object.fromEntries(new FormData(form).entries())}
+function renderSaved(db){const select=$('#curriculumBookSelect');if(select){const chosen=select.value;select.innerHTML='<option value="">الإجابة العامة دون اختيار كتاب</option>'+(db.books||[]).filter(b=>b.extractedText&&b.extractedText.length>30).map(b=>`<option value="${esc(b.id)}">${esc(b.title)}${b.grade?' — '+esc(b.grade):''}</option>`).join('');if([...select.options].some(o=>o.value===chosen))select.value=chosen;}$('#bookList').innerHTML=(db.books||[]).length?db.books.map(b=>{const outline=(b.outline||[]);const units=(db.units||[]).filter(u=>u.bookId===b.id);const drafts=(db.lessons||[]).filter(l=>l.sourceBookId===b.id);return `<article class="saved-item curriculum-book"><b>📚 ${esc(b.title)}</b><span>${esc([b.grade,b.subject,b.author].filter(Boolean).join(' · ')||'لم تُضف تفاصيل إضافية')}</span>${b.pdfUploaded?`<p>📄 ${arabicNum(b.pages||0)} صفحة · ${arabicNum(b.extractedChars||0)} حرف مستخرج</p><a class="btn secondary" href="/api/curriculum/pdf/${encodeURIComponent(b.id)}" target="_blank" rel="noopener">فتح ملف PDF</a>${outline.length?`<details open><summary>مراجعة عناوين الوحدات والدروس (${arabicNum(outline.length)})</summary><p>صحّح العناوين أدناه، ثم أنشئ مسودات منظمة. لن تظهر دروس المنهج للطلاب قبل اعتمادها.</p><div class="outline-editor" data-book="${esc(b.id)}">${outline.map((o,i)=>`<label class="outline-row"><span>${arabicNum(i+1)}</span><input data-outline-title value="${esc(o.title)}" maxlength="180" aria-label="عنوان ${arabicNum(i+1)}"></label>`).join('')}<button type="button" class="btn primary" data-organize-book="${esc(b.id)}">إنشاء الوحدات ومسودات الدروس</button><p class="form-status" data-organize-status></p></div></details>`:''}${units.length?`<div class="unit-summary"><b>الوحدات المنشأة: ${arabicNum(units.length)}</b><ul>${units.map(u=>`<li>${esc(u.title)} — مسودة للمراجعة</li>`).join('')}</ul></div>`:''}${drafts.length?`<details open><summary>مراجعة الدروس المستخرجة (${arabicNum(drafts.length)})</summary>${drafts.map(l=>`<div class="draft-review" data-draft="${esc(l.id)}"><label>عنوان الدرس<input data-draft-title value="${esc(l.title)}" maxlength="180"></label><label>محتوى الدرس<textarea data-draft-content rows="5">${esc(l.content)}</textarea></label><p class="form-status">${l.status==='approved'?'معتمد — يظهر للطلاب':'مسودة — لا تظهر للطلاب حتى اعتمادها'}</p><button class="btn primary" type="button" data-approve-lesson="${esc(l.id)}">اعتماد الدرس ونشره</button><button class="btn secondary" type="button" data-save-draft="${esc(l.id)}">حفظ كمسودة</button><p class="form-status" data-review-status></p><div class="quiz-review" data-quiz-review="${esc(l.id)}"><h4>🧩 أسئلة وأنشطة الدرس</h4><p class="form-status">${l.quizStatus==='approved'?'الأسئلة معتمدة وتظهر للطلاب.':(l.quizQuestions||[]).length?'أسئلة مقترحة تحتاج مراجعتك قبل إظهارها للطلاب.':'أنشئ أسئلة مقترحة بعد تفعيل خدمة الذكاء الاصطناعي.'}</p><button type="button" class="btn secondary" data-generate-quiz="${esc(l.id)}">${(l.quizQuestions||[]).length?'إعادة اقتراح الأسئلة':'اقتراح ٣ أسئلة للدرس'}</button><p class="form-status" data-quiz-status></p><div data-quiz-fields>${(l.quizQuestions||[]).map((q,i)=>`<div class="quiz-question" data-quiz-question><b>السؤال ${arabicNum(i+1)}</b><label>نص السؤال<input data-q-text value="${esc(q.question)}" maxlength="500"></label>${q.answers.map((ans,j)=>`<label>الخيار ${arabicNum(j+1)}<input data-q-answer value="${esc(ans)}" maxlength="250"></label>`).join('')}<label>الإجابة الصحيحة<select data-q-correct>${q.answers.map((ans,j)=>`<option value="${j}" ${Number(q.correct)===j?'selected':''}>الخيار ${arabicNum(j+1)}</option>`).join('')}</select></label><p class="form-status">${q.status==='approved'?'معتمد':'مسودة'}</p></div>`).join('')}</div>${(l.quizQuestions||[]).length?`<button type="button" class="btn secondary" data-save-quiz="${esc(l.id)}">حفظ كمسودة</button><button type="button" class="btn primary" data-approve-quiz="${esc(l.id)}">اعتماد الأسئلة ونشرها</button>`:''}</div></div>`).join('')}</details>`:''}<details><summary>معاينة النص المستخرج</summary><p>${esc((b.extractedText||'').slice(0,1800))}${(b.extractedText||'').length>1800?'…':''}</p></details>`:''}</article>`}).join(''):'<div class="empty">لم تُضف كتبًا بعد.</div>';$('#planList').innerHTML=(db.plans||[]).length?db.plans.map(p=>`<article class="saved-item"><b>✎ ${esc(p.title)}</b><span>${esc([p.grade,p.subject].filter(Boolean).join(' · ')||'خطة درس')}</span>${p.objectives?`<p>${esc(p.objectives)}</p>`:''}</article>`).join(''):'<div class="empty">ستظهر خطط الدروس التي تحفظها هنا.</div>';extraLessons=(db.lessons||[]).filter(l=>!l.sourceBookId||l.status==='approved').map(l=>({...l,icon:'📖'}));renderLessons()}
+async function refresh(){try{const r=await fetch('/api/content');if(r.ok)renderSaved(await r.json())}catch{toast('تعذّر تحميل البيانات المحفوظة. أعد تحميل الصفحة.')}}
+$('#lessonSearch').addEventListener('input',renderLessons);$('#gradeFilter')?.addEventListener('change',e=>{activeGrade=e.target.value;renderLessons()});$$('[data-filter]').forEach(b=>b.onclick=()=>{activeFilter=b.dataset.filter;$$('[data-filter]').forEach(x=>x.classList.toggle('active',x===b));renderLessons()});$('#menuBtn').onclick=()=>$('#nav').classList.toggle('open');$$('#nav a').forEach(a=>a.onclick=()=>$('#nav').classList.remove('open'));
+$('#bookForm').onsubmit=async e=>{e.preventDefault();const s=$('#bookStatus');try{await api('/api/books',formObject(e.target));e.target.reset();s.textContent='تم حفظ بيانات الكتاب.';toast('تم حفظ الكتاب');await refresh()}catch(err){s.textContent=err.message}};
 
-  function loadState() {
-    try { return { ...initialState, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") }; }
-    catch { return { ...initialState }; }
-  }
-  function saveState() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-    catch { showToast("تعذّر الحفظ على هذا الجهاز، لكن يمكنك مواصلة الدرس."); }
-    renderProgress();
-  }
-  function normalizeDigits(text) {
-    return String(text).replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)).replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d));
-  }
-  function showToast(message) {
-    const el = $("toast"); el.textContent = message; el.classList.add("show");
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("show"), 2800);
-  }
-  function renderProfile() {
-    const p = state.profile;
-    $("avatarPreview").textContent = p?.avatar || "🧒";
-    $("profileButtonText").textContent = p?.name ? p.name : "ملفي";
-    $("welcomeName").textContent = p?.name ? `يا ${p.name}` : "";
-    $("childName").value = p?.name || "";
-    $("childAge").value = p?.age || "";
-    selectedAvatar = p?.avatar || "🧒";
-    document.querySelectorAll(".avatar-choice").forEach(b => b.classList.toggle("chosen", b.dataset.avatar === selectedAvatar));
-  }
-  function renderProgress() {
-    $("lessonsDone").textContent = toArabicDigits(state.lessonsDone || 0);
-    $("correctCount").textContent = toArabicDigits(state.correctCount || 0);
-    $("progressFill").style.width = state.completed ? "100%" : (state.correctCount ? "35%" : "0%");
-    $("progressMessage").textContent = state.completed ? "رائع! أنهيت الدرس. أنت بطل التعلّم ⭐" : state.correctCount ? "أحسنت! استمر، أنت تتقدّم 🌟" : "ابدأ أول درس واجمع نجومك ⭐";
-  }
-  function toArabicDigits(n) { return String(n).replace(/\d/g, d => "٠١٢٣٤٥٦٧٨٩"[Number(d)]); }
-  function renderLesson() {
-    const l = lessons[currentSubject];
-    $("lessonTag").textContent = l.tag; $("lessonTitle").textContent = l.title;
-    $("lessonIntro").textContent = l.intro; $("visualCaption").textContent = l.caption;
-    $("questionText").textContent = l.question;
-    const stage = $("visualStage");
-    if (currentSubject === "math") {
-      stage.innerHTML = '<div class="apple-group"><span>🍎</span><span>🍎</span></div><span class="math-symbol">+</span><div class="apple-group"><span>🍎</span></div><span class="math-symbol equals">=</span><div class="apple-group answer-apples" id="answerApples"><span class="question-mark">؟</span></div>';
-    } else if (currentSubject === "reading") {
-      stage.innerHTML = '<div class="apple-group"><span style="font-size:46px;color:#176b52">أ</span></div><span class="math-symbol">←</span><div class="apple-group"><span style="font-size:43px">🦁</span></div><span class="math-symbol">←</span><div class="apple-group"><span style="font-size:43px">📖</span></div>';
-    } else {
-      stage.innerHTML = '<div class="apple-group"><span style="font-size:43px">🌱</span></div><span class="math-symbol">+</span><div class="apple-group"><span style="font-size:43px">☀️</span></div><span class="math-symbol">+</span><div class="apple-group"><span style="font-size:43px">💧</span></div>';
-    }
-    const options = $("answerOptions"); options.innerHTML = "";
-    l.answers.forEach(answer => {
-      const b = document.createElement("button"); b.type = "button"; b.className = "answer-button"; b.dataset.answer = answer; b.textContent = answer; b.addEventListener("click", () => checkAnswer(answer, b)); options.appendChild(b);
-    });
-    $("feedback").className = "feedback"; $("feedback").textContent = "اختَر الإجابة اللي تشوفها صحيحة.";
-    $("lessonStep").textContent = state.completed ? "تم إنجاز الدرس" : "الدرس ١ من ١";
-  }
-  function checkAnswer(answer, button) {
-    const l = lessons[currentSubject];
-    document.querySelectorAll(".answer-button").forEach(b => { b.disabled = true; if (b.dataset.answer === l.correct) b.classList.add("correct"); });
-    const feedback = $("feedback");
-    if (answer === l.correct) {
-      feedback.textContent = "ممتاز! إجابة صحيحة، أحسنت يا بطل! ⭐"; feedback.className = "feedback good";
-      state.correctCount = (state.correctCount || 0) + 1;
-      if (!state.completed) { state.completed = true; state.lessonsDone = (state.lessonsDone || 0) + 1; }
-      if (currentSubject === "math") {
-        const apples = $("answerApples"); if (apples) apples.innerHTML = "<span>🍎</span><span>🍎</span><span>🍎</span>";
-      }
-      saveState(); $("lessonStep").textContent = "تم إنجاز الدرس";
-      speak("ممتاز! إجابة صحيحة، أحسنت يا بطل!");
-    } else {
-      button.classList.add("incorrect"); feedback.textContent = "قريب! ما عليك، جرّب مرة ثانية بعد ما نعدّ أو نفكّر مع بعض."; feedback.className = "feedback try-again";
-      document.querySelectorAll(".answer-button").forEach(b => { b.disabled = false; if (b.dataset.answer === answer) b.disabled = true; });
-      speak("قريب! لا بأس. خلّينا نفكّر مع بعض، وبعدها جرّب مرة ثانية.");
-    }
-  }
-  function speak(text, onEnd) {
-    if (!("speechSynthesis" in window)) { showToast("ميزة الصوت غير متاحة في هذا المتصفح."); if (onEnd) onEnd(); return; }
-    window.speechSynthesis.cancel(); speaking = true;
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "ar"; utterance.rate = 0.88; utterance.pitch = 1.05;
-    utterance.onend = () => { speaking = false; if (onEnd) onEnd(); };
-    utterance.onerror = () => { speaking = false; if (onEnd) onEnd(); };
-    window.speechSynthesis.speak(utterance);
-  }
-  function explainLesson() { speak(lessons[currentSubject].explanation); }
-  function openVoice() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    $("voicePanel").hidden = false;
-    $("heardText").textContent = "ما سمعت كلامك بعد.";
-    if (!SR) {
-      $("voiceStatus").textContent = "المحادثة الصوتية غير مدعومة هنا";
-      $("voiceHelp").textContent = "جرّب متصفح Chrome حديثًا، أو استخدم زر «اسمع الشرح».";
-      showToast("المتصفح لا يدعم الاستماع الصوتي؛ يمكنك سماع الشرح.");
-      return;
-    }
-    try {
-      if (recognition) { try { recognition.abort(); } catch {} }
-      recognition = new SR(); recognition.lang = "ar"; recognition.continuous = true; recognition.interimResults = true; recognition.maxAlternatives = 1;
-      listening = true;
-      $("voiceStatus").textContent = "المعلّم يسمعك"; $("voiceHelp").textContent = "تكلم براحتك، واضغط إنهاء عندما تخلص.";
-      recognition.onresult = (event) => {
-        let transcript = "";
-        for (let i = event.resultIndex; i < event.results.length; i++) transcript += event.results[i][0].transcript + " ";
-        $("heardText").textContent = transcript.trim() || "أسمعك…";
-        if (event.results[event.results.length - 1].isFinal) respondToChild(transcript.trim());
-      };
-      recognition.onerror = (event) => {
-        if (!listening) return;
-        $("voiceStatus").textContent = event.error === "not-allowed" ? "نحتاج إذن الميكروفون" : "واجهنا مشكلة في الصوت";
-        $("voiceHelp").textContent = event.error === "not-allowed" ? "اسمح للمتصفح باستخدام الميكروفون ثم جرّب من جديد." : "يمكنك إنهاء المحادثة وتجربة زر الاستماع للشرح.";
-      };
-      recognition.onend = () => {
-        if (listening && recognition) { try { recognition.start(); } catch {} }
-      };
-      recognition.start();
-    } catch {
-      listening = false; $("voiceStatus").textContent = "تعذّر تشغيل الميكروفون"; $("voiceHelp").textContent = "تحقق من إذن الميكروفون واتصال آمن HTTPS.";
-    }
-  }
-  function respondToChild(text) {
-    if (!text) return;
-    const t = normalizeDigits(text.toLowerCase());
-    const l = lessons[currentSubject];
-    if (/عيد|كرر|مرة ثانية|ما فهم|مش فاهم|مش فاهمة|مش فاهمش|ما فهمتش|اشرح|وضح/.test(t)) {
-      speak("ولا يهمك يا بطل، نعيدها بهدوء. " + l.explanation);
-    } else if (/السلام عليكم|مرحبا|مرحبا|أهلًا|اهلا|هاي|هلا/.test(t)) {
-      speak("وعليكم السلام يا بطل! سعيد إنك تتعلّم معي. " + l.intro);
-    } else if (/كم|الناتج|الإجابة|الجواب|صح|حل/.test(t)) {
-      speak(l.explanation);
-    } else if (/وقف|انتهينا|خلاص|باي|مع السلامة/.test(t)) {
-      speak("أحسنت يا بطل! تقدر تنهي المحادثة من الزر الأحمر.");
-    } else {
-      speak("سمعتك يا بطل. خلّينا نمشي خطوة خطوة. " + l.intro);
-    }
-  }
-  function stopVoice() {
-    listening = false;
-    if (recognition) { try { recognition.onend = null; recognition.stop(); } catch {} recognition = null; }
-    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
-    speaking = false; $("voicePanel").hidden = true;
-    showToast("انتهت المحادثة الصوتية.");
-  }
-  function selectSubject(subject) {
-    if (!lessons[subject]) return;
-    currentSubject = subject; state.completed = false;
-    document.querySelectorAll(".subject-card").forEach(b => b.classList.toggle("selected", b.dataset.subject === subject));
-    renderLesson();
-  }
+$('#pdfForm').onsubmit=async e=>{e.preventDefault();const form=e.target;const f=new FormData(form);const file=f.get('pdf');const status=$('#pdfStatus'),result=$('#pdfResult'),btn=$('#pdfUploadBtn');if(!file||!file.size){status.textContent='اختر ملف PDF أولًا.';return}if(file.size>15*1024*1024){status.textContent='حجم الملف أكبر من 15 ميغابايت.';return}const title=String(f.get('title')||'').trim();const grade=String(f.get('grade')||'').trim();const subject=String(f.get('subject')||'').trim();const params=new URLSearchParams({title,grade,subject});btn.disabled=true;btn.textContent='جارٍ رفع الملف واستخراج النص…';status.textContent='قد تستغرق العملية بعض الوقت حسب حجم الكتاب.';result.classList.add('hidden');try{const r=await fetch('/api/curriculum/upload?'+params.toString(),{method:'POST',headers:{'Content-Type':'application/pdf'},body:file});const out=await r.json().catch(()=>({}));if(!r.ok)throw Error(out.error||'تعذّر معالجة الكتاب');status.textContent=`نجح الاستخراج: ${arabicNum(out.pages||0)} صفحة، و${arabicNum(out.extractedChars||0)} حرف.`;result.classList.remove('hidden');result.textContent=out.warning||`تم استخراج النص. عناوين أولية: ${out.outlineCount||0}.`;form.reset();await refresh()}catch(err){status.textContent=err.message}finally{btn.disabled=false;btn.textContent='رفع الملف واستخراج النص'}};
 
-  $("profileButton").addEventListener("click", () => { renderProfile(); $("profileDialog").showModal(); });
-  document.querySelectorAll(".avatar-choice").forEach(b => b.addEventListener("click", () => { selectedAvatar = b.dataset.avatar; document.querySelectorAll(".avatar-choice").forEach(x => x.classList.toggle("chosen", x === b)); }));
-  $("profileForm").addEventListener("submit", (event) => {
-    if (event.submitter?.value === "cancel") return;
-    if (event.submitter?.id === "saveProfile" || event.submitter?.value === "save") {
-      event.preventDefault();
-      const name = $("childName").value.trim().slice(0, 24);
-      state.profile = name || $("childAge").value ? { name, age: $("childAge").value, avatar: selectedAvatar } : null;
-      saveState(); renderProfile(); $("profileDialog").close(); showToast(name ? `أهلًا يا ${name}! جاهز نتعلّم؟` : "أهلًا يا بطل!"); return;
-    }
-  });
-  $("clearProfile").addEventListener("click", () => { state.profile = null; saveState(); renderProfile(); $("profileDialog").close(); showToast("تقدر تستخدم التطبيق بدون ملف."); });
-  $("startLesson").addEventListener("click", () => $("lessonSection").scrollIntoView({ behavior: "smooth", block: "start" }));
-  document.querySelectorAll(".subject-card").forEach(b => b.addEventListener("click", () => selectSubject(b.dataset.subject)));
-  $("listenButton").addEventListener("click", explainLesson);
-  $("voiceButton").addEventListener("click", openVoice);
-  $("stopVoiceButton").addEventListener("click", stopVoice);
-  $("resetProgress").addEventListener("click", () => {
-    if (confirm("هل تريد إعادة تقدّم التعلّم المحفوظ على هذا الجهاز؟")) { state.lessonsDone = 0; state.correctCount = 0; state.completed = false; saveState(); renderLesson(); showToast("تمت إعادة التقدّم على هذا الجهاز."); }
-  });
-  window.addEventListener("beforeunload", () => { listening = false; if (recognition) { try { recognition.abort(); } catch {} } if ("speechSynthesis" in window) window.speechSynthesis.cancel(); });
-  renderProfile(); renderProgress(); renderLesson();
-})();
+$('#bookList').addEventListener('click',async e=>{
+ const organize=e.target.closest('[data-organize-book]');
+ if(organize){const wrap=organize.closest('.outline-editor');const status=wrap.querySelector('[data-organize-status]');const outline=[...wrap.querySelectorAll('[data-outline-title]')].map(x=>({title:x.value.trim()})).filter(x=>x.title);organize.disabled=true;status.textContent='جارٍ إنشاء الوحدات ومسودات الدروس…';try{const out=await api('/api/curriculum/organize',{bookId:organize.dataset.organizeBook,outline});status.textContent=`تم إنشاء ${arabicNum(out.unitsCreated)} وحدة و${arabicNum(out.lessonsCreated)} مسودة درس. راجع كل درس قبل اعتماده.`;await refresh()}catch(err){status.textContent=err.message}finally{organize.disabled=false}return;}
+ const review=e.target.closest('[data-approve-lesson],[data-save-draft]');if(review){const card=review.closest('[data-draft]');const approve=review.hasAttribute('data-approve-lesson');const id=approve?review.dataset.approveLesson:review.dataset.saveDraft;const status=card.querySelector('[data-review-status]');review.disabled=true;try{await api('/api/curriculum/lessons/'+encodeURIComponent(id)+'/review',{action:approve?'approve':'draft',title:card.querySelector('[data-draft-title]').value,content:card.querySelector('[data-draft-content]').value});status.textContent=approve?'تم اعتماد الدرس؛ سيظهر للطلاب بعد تحديث القائمة.':'تم حفظ التغييرات كمسودة.';await refresh()}catch(err){status.textContent=err.message}finally{review.disabled=false}}
+ const gen=e.target.closest('[data-generate-quiz]');
+ if(gen){const box=gen.closest('[data-quiz-review]');const status=box.querySelector('[data-quiz-status]');gen.disabled=true;status.textContent='جارٍ إعداد أسئلة مقترحة من نص الدرس…';try{await api('/api/curriculum/lessons/'+encodeURIComponent(gen.dataset.generateQuiz)+'/generate-quiz',{});status.textContent='وصلت الأسئلة المقترحة. راجعها وحدد الإجابة الصحيحة قبل الاعتماد.';await refresh()}catch(err){status.textContent=err.message}finally{gen.disabled=false}return;}
+ const saveQuiz=e.target.closest('[data-save-quiz],[data-approve-quiz]');if(saveQuiz){const box=saveQuiz.closest('[data-quiz-review]');const status=box.querySelector('[data-quiz-status]');const questions=[...box.querySelectorAll('[data-quiz-question]')].map((q,i)=>({id:'q-'+i,question:q.querySelector('[data-q-text]').value,answers:[...q.querySelectorAll('[data-q-answer]')].map(x=>x.value),correct:Number(q.querySelector('[data-q-correct]').value)}));const approve=saveQuiz.hasAttribute('data-approve-quiz');saveQuiz.disabled=true;try{await api('/api/curriculum/lessons/'+encodeURIComponent(saveQuiz.dataset.approveQuiz||saveQuiz.dataset.saveQuiz)+'/review-quiz',{action:approve?'approve':'draft',questions});status.textContent=approve?'تم اعتماد الأسئلة ونشرها للطلاب.':'تم حفظ الأسئلة كمسودة.';await refresh()}catch(err){status.textContent=err.message}finally{saveQuiz.disabled=false}return;}
+});
+$('#planForm').onsubmit=async e=>{e.preventDefault();const s=$('#planStatus');try{await api('/api/plans',formObject(e.target));e.target.reset();s.textContent='تم حفظ خطة الدرس.';toast('تم حفظ الخطة');await refresh()}catch(err){s.textContent=err.message}};
+$('#lessonForm').onsubmit=async e=>{e.preventDefault();const s=$('#lessonStatus');const f=formObject(e.target);f.answers=[f.answer0,f.answer1,f.answer2].filter(Boolean);delete f.answer0;delete f.answer1;delete f.answer2;try{await api('/api/lessons',f);e.target.reset();s.textContent='تم حفظ الدرس وإضافته إلى قائمة الدروس.';toast('تم إنشاء الدرس');await refresh();$('#learn').scrollIntoView({behavior:'smooth'})}catch(err){s.textContent=err.message}};
+
+let teacherHistory=[];
+async function answerQuestion(){const q=$('#childQuestion').value.trim();if(!q){toast('اكتب سؤالك أولًا أو استخدم الميكروفون.');return}const btn=$('#askBtn');btn.disabled=true;btn.textContent='يفكّر المعلّم…';$('#teacherAnswer').textContent='أفكر في سؤالك، انتظر قليلًا…';$('#teacherAnswer').classList.remove('hidden');$('#voiceStatus').textContent='جارٍ إرسال السؤال إلى المعلّم المساعد.';try{const r=await fetch('/api/teacher/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q,history:teacherHistory,bookId:$('#curriculumBookSelect')?.value||''})});const out=await r.json();if(!r.ok)throw Error(out.error||'تعذّر الحصول على إجابة.');$('#teacherAnswer').textContent=out.answer;teacherHistory.push({role:'user',content:q},{role:'assistant',content:out.answer});teacherHistory=teacherHistory.slice(-8);$('#voiceStatus').textContent=out.configured?(out.grounded?'أجاب المعلّم الذكي مع الاستناد إلى الكتاب المختار.':'أجاب المعلّم الذكي. يمكنك الاستماع إلى الإجابة.'):(out.grounded?'وضع المنهج التجريبي: عُرض مقتطف من الكتاب. يلزم تفعيل الذكاء الاصطناعي للحصول على شرح حواري.':'وضع التجربة يعمل الآن. لتفعيل الإجابات الذكية، يلزم ضبط مفتاح الخدمة على الخادم.');const listen=document.createElement('button');listen.className='btn secondary';listen.type='button';listen.textContent='🔊 استمع إلى الإجابة';listen.style.marginTop='12px';listen.onclick=()=>speak(out.answer);$('#teacherAnswer').appendChild(listen);}catch(err){$('#teacherAnswer').textContent=err.message;$('#voiceStatus').textContent='لم تصل الإجابة. تحقق من الاتصال وحاول مجددًا.';}finally{btn.disabled=false;btn.textContent='اسأل المعلّم';}}
+$('#askBtn').addEventListener('click',answerQuestion);
+$('#stopVoiceBtn').addEventListener('click',()=>{if('speechSynthesis'in window)speechSynthesis.cancel();$('#voiceStatus').textContent='تم إيقاف القراءة الصوتية.'});
+$('#voiceBtn').addEventListener('click',()=>{const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){$('#voiceStatus').textContent='التعرّف على الكلام غير مدعوم في هذا المتصفح. اكتب سؤالك بدلًا من ذلك.';return}const rec=new SR();rec.lang='ar-YE';rec.interimResults=false;rec.maxAlternatives=1;$('#voiceStatus').textContent='استمع إليك الآن… تحدث بوضوح.';rec.onresult=e=>{$('#childQuestion').value=e.results[0][0].transcript;$('#voiceStatus').textContent='وصل كلامك. جارٍ تجهيز السؤال…';answerQuestion();};rec.onerror=()=>$('#voiceStatus').textContent='لم أتمكن من التقاط الصوت. تحقق من إذن الميكروفون أو اكتب سؤالك.';rec.onend=()=>{};try{rec.start()}catch{$('#voiceStatus').textContent='تعذّر بدء الميكروفون. حاول مرة أخرى.'}});
+$('#saveName').addEventListener('click',()=>{const p=readProgress(),name=$('#studentName').value.trim().slice(0,40);if(!name){$('#progressStatus').textContent='اكتب اسمًا أو لقبًا للطفل أولًا.';return}p.name=name;const ps=loadProfiles(),profile=ps.find(x=>x.id===activeProfileId());if(profile)profile.name=name;localStorage.setItem(PROFILES_KEY,JSON.stringify(ps));writeProgress(p);$('#progressStatus').textContent='تم حفظ اسم هذا الطفل على هذا الجهاز.'});
+$('#profileSelect').addEventListener('change',e=>{localStorage.setItem(ACTIVE_PROFILE_KEY,e.target.value);renderProfileControls();renderProgress();$('#lessonDetail').classList.add('hidden');$('#progressStatus').textContent='تم التبديل إلى ملف الطفل المحدد.';syncProfilesToServer()});
+$('#addProfile').addEventListener('click',()=>{const name=prompt('اكتب اسم الطفل أو لقبه (حتى ٤٠ حرفًا):');if(name===null)return;const clean=name.trim().slice(0,40);if(!clean){toast('اكتب اسمًا صحيحًا للطفل.');return}const ps=loadProfiles();if(ps.length>=8){toast('يمكن إنشاء ٨ ملفات أطفال كحد أقصى على هذا الجهاز.');return}const id='child-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,6);ps.push({id,name:clean,progress:emptyProgress(clean)});localStorage.setItem(PROFILES_KEY,JSON.stringify(ps));localStorage.setItem(ACTIVE_PROFILE_KEY,id);renderProfileControls();renderProgress();$('#progressStatus').textContent='تم إنشاء ملف مستقل للطفل. تقدّمه يبدأ من الصفر.';$('#lessonDetail').classList.add('hidden');syncProfilesToServer()});
+$('#deleteProfile').addEventListener('click',()=>{const ps=loadProfiles();if(ps.length<=1){toast('يجب الاحتفاظ بملف طفل واحد على الأقل.');return}const current=ps.find(x=>x.id===activeProfileId());if(!confirm(`هل تريد حذف ملف «${current?.name||'الطفل'}» وتقدّمه المحفوظ من هذا الجهاز؟ لا يمكن التراجع عن ذلك.`))return;const rest=ps.filter(x=>x.id!==activeProfileId());localStorage.setItem(PROFILES_KEY,JSON.stringify(rest));localStorage.setItem(ACTIVE_PROFILE_KEY,rest[0].id);renderProfileControls();renderProgress();$('#progressStatus').textContent='تم حذف الملف المحدد من هذا الجهاز.';$('#lessonDetail').classList.add('hidden');syncProfilesToServer()});
+$('#resetProgress').addEventListener('click',()=>{if(confirm('هل تريد إعادة ضبط الدروس والمحاولات المحفوظة على هذا الجهاز؟')){const p=readProgress();writeProgress({completed:[],attempts:0,correct:0,name:p.name||'',lessonStats:{}});$('#progressStatus').textContent='تمت إعادة ضبط التقدم على هذا الجهاز.'}});
+$('#learningRecommendations').addEventListener('click',e=>{const b=e.target.closest('[data-review-lesson]');if(b){const id=b.dataset.reviewLesson;const lesson=allLessons().find(x=>x.id===id);if(lesson){openLesson(id);$('#learn').scrollIntoView({behavior:'smooth',block:'start'});}}});
+renderLessons();refresh();renderProfileControls();renderProgress();checkParentSession();
+
+// إدارة المحتوى محمية بجلسة مدير مستقلة عن حسابات أولياء الأمور.
+let adminAuthenticated=false;
+function setAdminUI(auth){adminAuthenticated=!!auth;$$('.admin-only').forEach(el=>el.classList.toggle('hidden',!adminAuthenticated));$$('#nav a[href="#library"],#nav a[href="#teacher"],#nav a[href="#manage"]').forEach(a=>a.classList.toggle('hidden',!adminAuthenticated));$('#adminLoginBtn').classList.toggle('hidden',adminAuthenticated);$('#adminLogoutBtn').classList.toggle('hidden',!adminAuthenticated);$('#adminEmail').disabled=adminAuthenticated;$('#adminPassword').disabled=adminAuthenticated;if(adminAuthenticated){$('#adminStatus').textContent='تم تسجيل الدخول بصلاحية مدير المنصة. جلسة الإدارة تنتهي بعد 8 ساعات.';$('#adminPassword').value='';} }
+$('#adminLoginForm').addEventListener('submit',async e=>{e.preventDefault();const btn=$('#adminLoginBtn');btn.disabled=true;$('#adminStatus').textContent='جارٍ التحقق من بيانات المدير…';try{const out=await api('/api/admin/login',{email:$('#adminEmail').value.trim(),password:$('#adminPassword').value});setAdminUI(true);await refresh();toast('تم دخول الإدارة بنجاح');}catch(err){$('#adminStatus').textContent=err.message;}finally{btn.disabled=false;}});
+$('#adminLogoutBtn').addEventListener('click',async()=>{try{await api('/api/admin/logout',{});}catch{}setAdminUI(false);await refresh();$('#adminStatus').textContent='تم تسجيل الخروج من الإدارة.';});
+async function checkAdminSession(){try{const r=await fetch('/api/admin/me');const out=await r.json();setAdminUI(!!out.authenticated);if(out.authenticated)await refresh();}catch{setAdminUI(false)}}
+const originalRefresh=refresh;
+async function refreshTeacherDrafts(){const host=$('#teacherDraftList');if(!host||!adminAuthenticated)return;try{const d=await api('/api/admin/teacher-drafts');host.innerHTML=d.lessons.length?d.lessons.map(l=>`<article class="saved-item" data-teacher-draft="${esc(l.id)}"><b>${esc(l.title)}</b><span>${esc(l.createdByName)} · ${esc([l.subject,l.grade].filter(Boolean).join(' · '))}</span><p>${esc((l.content||'').slice(0,1200))}${(l.content||'').length>1200?'…':''}</p><div class="profile-actions"><button type="button" class="btn primary" data-teacher-approve="${esc(l.id)}">اعتماد ونشر</button><button type="button" class="btn secondary" data-teacher-reject="${esc(l.id)}">رفض المسودة</button></div></article>`).join(''):'<div class="empty">لا توجد مسودات معلمين حاليًا.</div>';}catch(e){host.textContent=e.message}}
+ document.addEventListener('click',async e=>{const b=e.target.closest('[data-teacher-approve],[data-teacher-reject]');if(!b)return;const approve=b.hasAttribute('data-teacher-approve');b.disabled=true;try{await api('/api/admin/teacher-drafts/review',{id:approve?b.dataset.teacherApprove:b.dataset.teacherReject,action:approve?'approve':'reject'});$('#teacherDraftStatus').textContent=approve?'تم اعتماد الدرس ونشره.':'تم رفض المسودة؛ لن تظهر للطلاب.';await refresh();await refreshTeacherDrafts()}catch(err){$('#teacherDraftStatus').textContent=err.message}finally{b.disabled=false}});
+refresh=async function(){try{const r=await fetch(adminAuthenticated?'/api/admin/content':'/api/content');if(r.ok)renderSaved(await r.json());if(adminAuthenticated)await refreshTeacherDrafts()}catch{toast('تعذّر تحميل البيانات المحفوظة. أعد تحميل الصفحة.')}};
+checkAdminSession();

@@ -1,12 +1,15 @@
 {
   "name": "taallam-ma-alhaitham",
-  "version": "1.0.0",
+  "version": "2.20.0",
   "private": true,
-  "description": "تعلّم مع الهيثم - نموذج أولي تعليمي عربي للأطفال",
+  "description": "منصة تعليمية عربية متعددة المدارس مع إدارة مركزية، إدارة مدرسية، محتوى وواجبات وتسليمات",
   "scripts": {
     "start": "node server.js"
   },
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "pdf-parse": "1.1.1"
   }
 }
