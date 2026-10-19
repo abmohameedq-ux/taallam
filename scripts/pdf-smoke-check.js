@@ -59,7 +59,20 @@ const checks = [
   ,['school member grade assignment uses configured grade dropdown and preserves legacy grade', admin.includes('data-field=\"grade\"') && admin.includes('school.grades||[]') && admin.includes('m.grade?[m.grade]:[]')]
   ,['school member section assignment uses configured section dropdown and preserves legacy section', admin.includes('data-field=\"section\"') && admin.includes('school.sections||[]') && admin.includes('m.section?[m.section]:[]')]
   ,['teacher subjects are assigned using selectable checkboxes rather than comma-separated text', admin.includes('data-subject-choice') && admin.includes('subjects:[...([...document.querySelectorAll') && !admin.includes('name=\"subjects\" value=\"${esc((m.subjects||[]).join')]
+  ,['student results include submission summary metrics and average grade', fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('id="workSummary"') && fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('متوسط الدرجات')]
+  ,['student submissions can be filtered by correction status', fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('id="submissionFilter"') && fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('function renderMySubmissions()')]
+  ,['student submission cards show assignment title, teacher feedback, and attached solution link', fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('ملاحظات المعلم') && fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('s.attachmentUrl') && fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('studentPosts.find(p=>p.id===s.postId)')]
 ];
+// PWA installability checks for all role-specific manifests.
+for (const name of fs.readdirSync(path.join(root,'public')).filter(name=>/^manifest-.*\.webmanifest$/.test(name))) {
+  const manifest = JSON.parse(fs.readFileSync(path.join(root,'public',name),'utf8'));
+  checks.push([`${name} includes installable PNG icons`, manifest.icons.some(icon=>icon.src==='/icons/taallam-192.png'&&icon.sizes==='192x192'&&icon.type==='image/png')&&manifest.icons.some(icon=>icon.src==='/icons/taallam-512.png'&&icon.sizes==='512x512'&&icon.type==='image/png')]);
+}
+const installer = fs.readFileSync(path.join(root,'public','install.js'),'utf8');
+const serviceWorker = fs.readFileSync(path.join(root,'public','sw.js'),'utf8');
+checks.push(['installer keeps one declared manifest per portal', installer.includes("document.querySelector('link[rel=\\\"manifest\\\"]')")]);
+checks.push(['service worker cache is versioned for the PWA fix', serviceWorker.includes('taallam-shell-v2.54.0')]);
+checks.push(['service worker caches role manifests and PNG icons', serviceWorker.includes('/manifest-school-admin.webmanifest')&&serviceWorker.includes('/icons/taallam-512.png')]);
 let failed = 0;
 for (const [label, ok] of checks) { console.log(`${ok ? 'PASS' : 'FAIL'} ${label}`); if (!ok) failed++; }
 console.log(`\n${checks.length - failed}/${checks.length} source checks passed.`);
