@@ -33,17 +33,17 @@ const checks = [
   ,['unmatched questions do not fall back to general answers', server.includes('page-index-unavailable') && server.includes('حتى لا أشرح صفحة خاطئة')]
   ,['lesson-number requests resolve against extracted book headings', server.includes('lessonRequest&&ordinalMatch') && server.includes('inferOutline(text)')]
   ,['page requests do not pretend extracted text preserves PDF page numbers', server.includes('page-index-unavailable') && server.includes('حتى لا أشرح صفحة خاطئة')]
-  ,['student UI offers quick lesson and page explanation prompts', fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('data-teacher-prompt=')]
+  ,['student UI uses a compact free-form lesson request instead of a long prompt row', fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('placeholder="اكتب: اشرح الدرس الأول"') && !fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('data-teacher-prompt=')]
   ,['AI prompt explicitly restricts answer to selected book excerpt', server.includes('أجب اعتمادًا على المقتطف من كتاب المنهج المحدد فقط')]
-  ,['public question UI marks book as required', fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('اختر كتاب المنهج الذي تريد السؤال عنه (مطلوب)')]
+  ,['public question UI provides a concise curriculum book selector', fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('id="curriculumBookSelect"') && fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('اختر كتاب المنهج')]
   ,['question UI blocks send without a selected book', fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('اختر كتاب المنهج أولًا حتى يكون الشرح مرتبطًا بمحتواه.')]
   ,['voice request is one-shot and submits recognized speech for spoken explanation', fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('function startOneShotListening()') && fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('answerQuestion({speakAnswer:true})')]
   ,['voice stop cancels spoken lesson audio', fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('function stopLessonAudio') && fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('speechSynthesis.cancel()')]
   ,['voice errors provide microphone permission guidance', fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('اسمح للمتصفح باستخدام الميكروفون')]
   ,['voice input does not start a continuous conversation', fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('rec.continuous=false') && !fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('voiceConversationActive')]
-  ,['speech startup watchdog allows a longer startup window', fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('let finished=false,started=false') && fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('},5000)')]
-  ,['teacher answer offers simpler explanation follow-up', fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('اشرحها بطريقة أبسط') && fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('اشرح الفكرة التي سألت عنها للتو بطريقة أبسط جدًا')]
-  ,['teacher answer offers book-grounded practice question', fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('اختبر فهمي') && fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('اطرح سؤال تدريب واحدًا مناسبًا')]
+  ,['speech playback waits for Android voices and falls back to Arabic locales', fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('voiceschanged') && fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('ar[-_]SA')]
+  ,['teacher answer supports replaying the spoken explanation', fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('أعد الاستماع') && fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('speak(currentSpeechText)')]
+  ,['teacher answer controls are compact and do not add extra follow-up prompts', !fs.readFileSync(path.join(root,'public','app.js'),'utf8').includes('const followups=')]
   ,['school creation uses selectable grade checkboxes and no subjects text field', fs.readFileSync(path.join(root,'public','admin.html'),'utf8').includes('name=\"gradeChoice\"') && !fs.readFileSync(path.join(root,'public','admin.html'),'utf8').includes('name=\"subjectsText\"')]
   ,['student grade is selected from the chosen school grades', fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('<select name=\"grade\" required>') && fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('grade.innerHTML=') ]
   ,['school and admin account creation accepts eight-character passwords server-side', server.includes('password.length<8||password.length>128') && server.includes('كلمة مرور لا تقل عن 8 خانات')]
@@ -74,7 +74,7 @@ for (const name of ['manifest-public.webmanifest','manifest-admin.webmanifest','
 const installer = fs.readFileSync(path.join(root,'public','install.js'),'utf8');
 const serviceWorker = fs.readFileSync(path.join(root,'public','sw.js'),'utf8');
 checks.push(['installer keeps one declared manifest per portal', installer.includes("document.querySelector('link[rel=\\\"manifest\\\"]')")]);
-checks.push(['public service worker cache is versioned for the three-app PWA architecture', serviceWorker.includes('taallam-shell-v2.59.0')]);
+checks.push(['public service worker cache is versioned for the three-app PWA architecture', serviceWorker.includes('taallam-shell-v2.60.0')]);
 for (const [role, scope, cache] of [['admin','/admin/','taallam-admin-shell-v2.57.0'],['school-admin','/school-admin/','taallam-school-admin-shell-v2.57.0']]) { const worker=fs.readFileSync(path.join(root,'public',role,'sw.js'),'utf8'); checks.push([`${role} has an independent scoped service worker`, worker.includes(`const CACHE_NAME = '${cache}'`) && worker.includes(`caches.match('${scope}')`)]); }
 checks.push(['admin portals register separate scoped service workers', installer.includes("role==='admin'?'/admin/sw.js':role==='school-admin'?'/school-admin/sw.js':'/sw.js'") && installer.includes("scope,updateViaCache:'none'")]);
 checks.push(['service worker caches the three installable manifests and distinct app icons', serviceWorker.includes('/manifest-public.webmanifest')&&serviceWorker.includes('/manifest-admin.webmanifest')&&serviceWorker.includes('/manifest-school-admin.webmanifest')&&serviceWorker.includes('/icons/taallam-admin-512.png')&&serviceWorker.includes('/icons/taallam-school-512.png')]);
@@ -89,3 +89,5 @@ let failed = 0;
 for (const [label, ok] of checks) { console.log(`${ok ? 'PASS' : 'FAIL'} ${label}`); if (!ok) failed++; }
 console.log(`\n${checks.length - failed}/${checks.length} source checks passed.`);
 if (failed) process.exitCode = 1;
+
+checks.push(['teacher request UI is compact with explain and voice controls only', fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('id="askBtn"') && fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('id="voiceBtn"') && !fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('data-teacher-prompt=')]);

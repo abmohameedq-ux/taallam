@@ -54,7 +54,20 @@ function openLesson(id){
  }
  d.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
-function speak(text){return new Promise(resolve=>{if(!('speechSynthesis'in window)||!('SpeechSynthesisUtterance'in window)){toast('قراءة الصوت غير مدعومة هنا. يمكنك متابعة الدرس بالقراءة.');resolve(false);return}try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(String(text||''));u.lang='ar-YE';u.rate=.86;u.pitch=1;const chooseVoice=()=>{const voices=speechSynthesis.getVoices()||[];return voices.find(v=>/^ar(-|$)/i.test(v.lang))||voices.find(v=>String(v.lang||'').toLowerCase().startsWith('ar'))};const v=chooseVoice();if(v)u.voice=v;let finished=false,started=false;const done=ok=>{if(finished)return;finished=true;clearTimeout(watchdog);resolve(ok)};u.onstart=()=>{started=true;};u.onend=()=>done(true);u.onerror=()=>{toast('تعذّر تشغيل الصوت. جرّب تفعيل صوت عربي في إعدادات الهاتف.');done(false)};if(!v){const status=$('#voiceStatus');if(status)status.textContent='لم يظهر صوت عربي مثبت؛ سأحاول تشغيل الصوت الافتراضي.'}const watchdog=setTimeout(()=>{if(!started&&!speechSynthesis.speaking&&!speechSynthesis.pending){toast('لم يبدأ الهاتف تشغيل الصوت. يمكنك قراءة الإجابة أو تفعيل خدمة تحويل النص إلى كلام في إعدادات الجهاز.');done(false)}},5000);speechSynthesis.speak(u)}catch{toast('تعذّر بدء قراءة الصوت. يمكنك متابعة الدرس بالقراءة.');resolve(false)}})}
+async function speak(text){
+ const clean=String(text||'').replace(/\s+/g,' ').trim();if(!clean)return false;
+ if(!('speechSynthesis'in window)||!('SpeechSynthesisUtterance'in window)){voiceStatus('الصوت غير مدعوم في هذا المتصفح. افتح المنصة في Chrome أو حدّث المتصفح.');return false}
+ const synth=window.speechSynthesis;
+ try{
+  synth.cancel();await new Promise(r=>setTimeout(r,200));let voices=synth.getVoices()||[];
+  if(!voices.length){await new Promise(resolve=>{let done=false;const finish=()=>{if(done)return;done=true;clearTimeout(timer);synth.removeEventListener?.('voiceschanged',finish);resolve()};const timer=setTimeout(finish,1000);synth.addEventListener?.('voiceschanged',finish,{once:true})});voices=synth.getVoices()||[]}
+  const arabic=voices.filter(v=>/^ar([_-]|$)/i.test(v.lang||''));const voice=arabic.find(v=>/^ar[-_]YE$/i.test(v.lang))||arabic.find(v=>/^ar[-_]SA$/i.test(v.lang))||arabic.find(v=>/^ar[-_]EG$/i.test(v.lang))||arabic[0]||null;
+  const chunks=clean.match(/[^.!؟?؛]+[.!؟?؛]?|\n+/g)||[clean];let started=false;
+  for(const raw of chunks){const chunk=raw.trim();if(!chunk)continue;const ok=await new Promise(resolve=>{const u=new SpeechSynthesisUtterance(chunk);u.lang=voice?.lang||'ar-SA';if(voice)u.voice=voice;u.rate=.88;u.pitch=1;let settled=false;const finish=v=>{if(settled)return;settled=true;clearTimeout(timer);resolve(v)};const timer=setTimeout(()=>finish(false),Math.max(15000,chunk.length*220));u.onstart=()=>{started=true};u.onend=()=>finish(true);u.onerror=()=>finish(false);try{synth.speak(u)}catch{finish(false)}});
+   if(!ok){voiceStatus(started?'توقف الصوت قبل اكتمال الشرح. اضغط «أعد الاستماع».':'لم يبدأ صوت الهاتف. تأكد من تفعيل محرك تحويل النص إلى كلام في أندرويد (يفضّل Speech Services by Google) ثم اختر صوتًا عربيًا.');return false}
+  }return true;
+ }catch{voiceStatus('تعذّر تشغيل الصوت. جرّب Chrome وتأكد من تفعيل محرك تحويل النص إلى كلام في الهاتف.');return false}
+}
 async function api(path,data){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const out=await r.json().catch(()=>({}));if(!r.ok)throw Error(out.error||'تعذّر الحفظ');return out}
 let parentAuthenticated=false,parentSyncBusy=false;
 function profileSnapshot(){return loadProfiles().map(p=>({id:p.id,name:p.name,progress:p.progress||emptyProgress(p.name)}))}
@@ -122,8 +135,8 @@ async function answerQuestion({speakAnswer=true}={}){
  try{const r=await fetch('/api/teacher/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q,history:teacherHistory,bookId:$('#curriculumBookSelect').value})});const out=await r.json();if(!r.ok)throw Error(out.error||'تعذّر الحصول على الشرح.');answer=String(out.answer||'');currentSpeechText=answer;box.textContent=answer;teacherHistory.push({role:'user',content:q},{role:'assistant',content:answer});teacherHistory=teacherHistory.slice(-8);
  const actions=document.createElement('div');actions.className='teacher-followups';actions.style.cssText='display:flex;flex-wrap:wrap;gap:8px;margin-top:12px';
  const add=(label,fn,cls='btn secondary')=>{const b=document.createElement('button');b.type='button';b.className=cls;b.textContent=label;b.addEventListener('click',fn);actions.appendChild(b)};
- add('🔊 استمع إلى الشرح',()=>speak(currentSpeechText),'btn primary');add('⏸️ إيقاف مؤقت',()=>{if('speechSynthesis'in window&&speechSynthesis.speaking){speechSynthesis.pause();voiceStatus('أُوقف الشرح مؤقتًا.')} });add('▶️ استكمال الصوت',()=>{if('speechSynthesis'in window&&speechSynthesis.paused){speechSynthesis.resume();voiceStatus('🔊 يستكمل المعلّم الشرح…')}else if(currentSpeechText)speak(currentSpeechText)});add('⏹️ إيقاف الصوت',()=>stopLessonAudio());
- const followups=[{label:'🧩 اشرحها بطريقة أبسط',question:'اشرح الفكرة التي سألت عنها للتو بطريقة أبسط جدًا، خطوة بخطوة، وبالاعتماد على مقتطف الكتاب المختار فقط. إذا لم يذكر المقتطف ما يكفي، وضّح ذلك.'},{label:'🎯 اختبر فهمي',question:'اختبر فهمي للفكرة التي ناقشناها من مقتطف الكتاب المختار فقط. اطرح سؤال تدريب واحدًا مناسبًا لعمري وصفّي، ولا تكشف الإجابة الآن. إذا لم يكفِ النص، قل ذلك بوضوح.'}];for(const item of followups)add(item.label,()=>{$('#childQuestion').value=item.question;answerQuestion({speakAnswer:true})});box.appendChild(actions);
+ add('🔊 أعد الاستماع',()=>speak(currentSpeechText),'btn primary');add('⏹️ إيقاف الصوت',()=>stopLessonAudio(),'btn secondary');
+box.appendChild(actions);
  voiceStatus(out.configured?'تم إعداد الشرح. سيبدأ تشغيله بالصوت الآن.':(out.grounded?'هذه معاينة من نص الكتاب؛ لتوليد شرح تعليمي كامل، يجب ضبط خدمة الذكاء الاصطناعي على الخادم.':'تم إعداد الرد.'));
  if(speakAnswer&&answer){voiceStatus('🔊 المعلّم يشرح الآن بالصوت…');const ok=await speak(answer);if(ok)voiceStatus('انتهى الشرح الصوتي. يمكنك إعادة الاستماع أو طلب تبسيط الشرح.')}}
  catch(err){box.textContent=err.message;voiceStatus('لم يصل الشرح. تحقق من الاتصال وحاول مجددًا.')}

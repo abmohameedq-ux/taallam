@@ -48,3 +48,6 @@
 .book-download .btn{padding:9px 13px;white-space:nowrap;flex-shrink:0}
 .book-grade summary:focus-visible,.book-subject summary:focus-visible{outline:3px solid #82b49a;outline-offset:-3px}
 @media(max-width:520px){.book-download{align-items:flex-start}.book-download .btn{padding:8px 10px;font-size:13px}.book-grade>summary{padding:13px}.book-subject-list{padding:8px}.book-items{padding:0 8px 8px}}
+
+/* Compact spoken lesson request */
+.ask-section{padding-top:18px;padding-bottom:18px}.ask-section .section-heading{margin-bottom:10px}.ask-section .section-heading h2{margin-bottom:0}.ask-card{max-width:720px;padding:12px}.ask-card textarea{min-height:46px;max-height:110px;resize:vertical}.ask-actions{margin-top:8px;gap:8px}.ask-actions .btn{min-height:44px;flex:1}.ask-card .form-status:empty{display:none}.teacher-answer{margin-top:10px;padding:12px}.teacher-followups{margin-top:10px!important}
