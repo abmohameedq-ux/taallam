@@ -1,8 +1,8 @@
 {
   "name": "taallam-ma-alhaitham",
-  "version": "2.20.0",
+  "version": "2.23.1",
   "private": true,
-  "description": "منصة تعليمية عربية متعددة المدارس مع إدارة مركزية، إدارة مدرسية، محتوى وواجبات وتسليمات",
+  "description": "منصة تعليمية عربية متعددة المدارس مع سجل أكاديمي وأرشفة الأعوام الدراسية",
   "scripts": {
     "start": "node server.js"
   },
