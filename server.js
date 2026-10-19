@@ -156,13 +156,13 @@ async function teacherAnswer(question, history=[], curriculum=null){
   if(!key) return {configured:false, grounded:Boolean(curriculum), bookTitle:curriculum?.book?.title||null, answer:curriculum?('وجدت نصًا من كتاب «'+curriculum.book.title+'». مقتطف مناسب للمراجعة: '+curriculum.excerpt.slice(0,900)+(curriculum.excerpt.length>900?'…':'')+'\n\nهذه معاينة مستندة إلى الكتاب وليست شرحًا ذكيًا كاملًا؛ فعّل خدمة الذكاء الاصطناعي ليشرح النص ويجيب عن أسئلتك.'):demoAnswer(question)};
   const base=(process.env.AI_BASE_URL||'https://api.openai.com/v1').replace(/\/$/,'');
   const model=process.env.AI_MODEL||'gpt-4o-mini';
-  const groundedRules=curriculum?`\n\nقيد تعليمي إلزامي: أجب اعتمادًا على المقتطف من كتاب المنهج المحدد فقط. لا تستخدم المعرفة العامة لإكمال معلومة غير موجودة في المقتطف، ولا تضف حقائق خارجية أو تدّعِ أنها من الكتاب. إذا لم يكفِ المقتطف للإجابة، قل بوضوح: «لم أجد إجابة كافية في النص المستخرج من هذا الكتاب. جرّب سؤالًا آخر أو راجع الكتاب مع معلّمك».\nالكتاب: ${curriculum.book.title} | الصف: ${curriculum.book.grade||'غير محدد'} | المادة: ${curriculum.book.subject||'غير محددة'}.\nمقتطف نص الكتاب:\n${curriculum.excerpt}`:'';
+  const groundedRules=curriculum?`\n\nقيد تعليمي إلزامي: افهم سؤال الطفل بصيغته الطبيعية واللهجة ولا تشترط تطابق كلمات السؤال مع نص الكتاب. أجب اعتمادًا على المقتطف من الكتاب المحدد، ولا تنسب للكتاب معلومات غير موجودة فيه. إذا طلب شرحًا عامًا، ابدأ بشرح تمهيدي مما يظهر في المقتطف؛ وإذا لم يكفِ النص فاطلب منه عنوان الدرس أو توضيحًا بلطف. اجعل الشرح مناسبًا للصوت: جمل قصيرة، خطوة خطوة، مع مثال محسوس وأسئلة بسيطة عند الحاجة.\nالكتاب: ${curriculum.book.title} | الصف: ${curriculum.book.grade||'غير محدد'} | المادة: ${curriculum.book.subject||'غير محددة'}.\nمقتطف نص الكتاب:\n${curriculum.excerpt}`:'';
   const messages=[{role:'system',content:systemPrompt+groundedRules}];
   for(const item of history.slice(-6)) if(item && ['user','assistant'].includes(item.role) && typeof item.content==='string') messages.push({role:item.role,content:item.content.slice(0,1500)});
   messages.push({role:'user',content:question.slice(0,2000)});
   const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),25000);
   try{
-    const r=await fetch(base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model,messages,temperature:0.5,max_tokens:450}),signal:controller.signal});
+    const r=await fetch(base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model,messages,temperature:0.55,max_tokens:700}),signal:controller.signal});
     const payload=await r.json().catch(()=>({}));
     if(!r.ok){console.error('AI provider returned status',r.status);throw new Error('تعذّر الوصول إلى المعلّم الذكي الآن. حاول بعد قليل.');}
     const answer=payload.choices?.[0]?.message?.content;
@@ -192,7 +192,7 @@ function curriculumContext(question, bookId){
   const terms=q.toLowerCase().replace(/[^\u0600-\u06ff\w\s]/g,' ').split(/\s+/).filter(w=>w.length>2&&!['كيف','ماذا','لماذا','اشرح','لي','من','الى','على','هذا','هذه','الذي','التي','عن','في','هل','أريد','اريد'].includes(w));
   let best=null;
   for(const book of chosen){const chunks=String(book.extractedText).split(/\n{2,}|(?<=[.!؟])\s+/).map(x=>x.trim()).filter(x=>x.length>=45);for(const text of chunks){const low=text.toLowerCase();let score=0;for(const term of terms)if(low.includes(term))score++;if(score&&(!best||score>best.score))best={book,text,score};}}
-  if(!best)return {book:chosen[0],excerpt:'',matched:false};
+  if(!best){const book=chosen[0];const text=String(book.extractedText||'').trim();const generic=/(اشرح|فهمني|وضح|علمني|ساعدني|ما فهمت|كيف|لماذا|ماذا|تكلم عن|اعطني مثال|أعطني مثال)/i.test(q);if(generic&&text.length>40)return {book,excerpt:text.slice(0,5500),matched:true,semanticFallback:true};return {book,excerpt:text.slice(0,3500),matched:true,semanticFallback:true};}
   const chunks=String(best.book.extractedText).split(/\n{2,}|(?<=[.!؟])\s+/).map(x=>x.trim()).filter(x=>x.length>=45);const idx=chunks.indexOf(best.text);const excerpt=[chunks[idx-1],best.text,chunks[idx+1]].filter(Boolean).join('\n').slice(0,3500);
   return {book:best.book,excerpt,matched:true};
 }

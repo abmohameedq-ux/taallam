@@ -78,3 +78,27 @@ footer{line-height:1.9}
 #voiceStatus{line-height:1.8;margin-top:8px}
 #teacherAnswer{overflow-wrap:anywhere}
 @media(max-width:480px){.student-prompt-chips{gap:6px}.student-prompt-chips button{font-size:13px;padding:7px 10px;min-height:36px}.ask-actions{grid-template-columns:1fr 1fr}}
+
+/* Accessible word-following and visual learning board */
+.speech-transcript{direction:rtl;line-height:2.25;font-size:1.08rem;white-space:pre-wrap;overflow-wrap:anywhere}
+.speech-word{border-radius:4px;transition:background-color .12s,color .12s}
+.speech-word.is-speaking{background:#ffe36e;color:#24351f;box-shadow:0 0 0 2px #ffe36e}
+.visual-learning-board{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:10px;margin:14px 0;padding:14px;background:#fff8df;border:1px solid #f0dfa1;border-radius:16px;font-size:1.15rem}
+.visual-math-group{display:flex;flex-direction:column;align-items:center;gap:5px;min-width:44px}.visual-math-group span{font-size:1.35rem;line-height:1.6}.visual-math-op{font-size:1.5rem;font-weight:900;color:#315c43}
+@media(prefers-reduced-motion:reduce){.speech-word{transition:none}}
+
+/* v2.65 student-first home and information architecture */
+#curriculumLibrary{background:#fbfcf8;border-top:1px solid #edf1e8;border-bottom:1px solid #edf1e8;border-radius:24px;margin:18px auto;padding-top:34px;padding-bottom:34px}
+#curriculumLibrary .section-heading h2{font-size:clamp(24px,3vw,32px)}
+.book-status-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0}
+.book-status-row .form-status{margin:0}
+.about-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.about-card,.about-note{background:#fff;border:1px solid var(--line);border-radius:18px;padding:22px;box-shadow:var(--shadow)}
+.about-card>span{font-size:28px;display:inline-grid;place-items:center;width:52px;height:52px;background:var(--green2);border-radius:15px}
+.about-card h3,.about-note h3{margin:13px 0 6px}
+.about-card p,.about-note p{margin:0;color:var(--muted);line-height:1.9}
+.about-note{margin-top:14px;background:var(--cream)}
+#about .section-heading{margin-bottom:20px}
+#about .section-heading .section-icon{display:none}
+@media(max-width:850px){.about-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.about-grid{grid-template-columns:1fr}.about-card,.about-note{padding:17px}#curriculumLibrary{margin:12px 10px;border-radius:18px;padding:24px 14px}.book-status-row{align-items:stretch}.book-status-row .btn{width:100%}}
