@@ -80,7 +80,7 @@ footer{line-height:1.9}
 @media(max-width:480px){.student-prompt-chips{gap:6px}.student-prompt-chips button{font-size:13px;padding:7px 10px;min-height:36px}.ask-actions{grid-template-columns:1fr 1fr}}
 
 /* Accessible word-following and visual learning board */
-.speech-transcript{direction:rtl;line-height:2.25;font-size:1.08rem;white-space:pre-wrap;overflow-wrap:anywhere}
+.speech-transcript{direction:rtl;line-height:2.25;font-size:1.08rem;white-space:pre-wrap;overflow-wrap:anywhere;max-height:min(55vh,480px);overflow-y:auto;overscroll-behavior:contain;padding:10px 12px;border:1px solid var(--line,#dce5df);border-radius:14px;scroll-behavior:smooth}
 .speech-word{border-radius:4px;transition:background-color .12s,color .12s}
 .speech-word.is-speaking{background:#ffe36e;color:#24351f;box-shadow:0 0 0 2px #ffe36e}
 .visual-learning-board{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:10px;margin:14px 0;padding:14px;background:#fff8df;border:1px solid #f0dfa1;border-radius:16px;font-size:1.15rem}
@@ -102,3 +102,11 @@ footer{line-height:1.9}
 #about .section-heading .section-icon{display:none}
 @media(max-width:850px){.about-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:520px){.about-grid{grid-template-columns:1fr}.about-card,.about-note{padding:17px}#curriculumLibrary{margin:12px 10px;border-radius:18px;padding:24px 14px}.book-status-row{align-items:stretch}.book-status-row .btn{width:100%}}
+
+.visual-math-step{display:flex;flex-direction:column;align-items:center;gap:7px;padding:8px;border-radius:10px;background:#fffdf5;min-width:90px}.visual-math-step strong{font-size:.9rem;text-align:center}.visual-math-step .visual-math-group span{letter-spacing:2px}.speech-word.is-speaking{scroll-margin-block:35vh}
+
+.feedback-dialog{border:0;border-radius:20px;padding:0;width:min(92vw,440px);max-width:440px;box-shadow:0 22px 70px #102b2040;color:var(--ink);font-family:'Tajawal',Arial,sans-serif}.feedback-dialog::backdrop{background:#10251dcc;backdrop-filter:blur(3px)}.feedback-dialog-inner{padding:28px;text-align:center}.feedback-dialog-icon{width:58px;height:58px;border-radius:50%;margin:0 auto 12px;display:grid;place-items:center;background:#e2f1e5;color:#1c6849;font-size:30px;font-weight:800}.feedback-dialog[data-busy='1'] .feedback-dialog-icon{background:#fff2d7;color:#8b6412}.feedback-dialog-title{margin:4px 0 8px;font-size:22px}.feedback-dialog-message{margin:0 0 20px;color:#53645b;overflow-wrap:anywhere}.feedback-dialog-close{min-width:120px}
+
+/* Accessible speech player progress */
+.speech-player{min-width:0}.speech-progress{display:block;width:100%;height:7px;margin:6px 0 3px;accent-color:#e4b83f}.speech-progress-label{font-size:.82rem;color:var(--muted,#64748b);margin:4px 0}.speech-transcript{overscroll-behavior:contain;scroll-behavior:smooth}
+@media(prefers-reduced-motion:reduce){.speech-transcript{scroll-behavior:auto}}

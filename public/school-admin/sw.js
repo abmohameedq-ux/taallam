@@ -1,4 +1,4 @@
-const CACHE_NAME = 'taallam-school-admin-shell-v2.57.0';
+const CACHE_NAME = 'taallam-school-admin-shell-v2.73.0';
 const SHELL = ["/school-admin/", "/school-admin", "/styles.css", "/install.js", "/manifest-school-admin.webmanifest", "/icons/taallam-school-192.png", "/icons/taallam-school-512.png", "/icons/taallam-school.svg"];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(SHELL)).catch(() => {}));
