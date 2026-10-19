@@ -110,3 +110,7 @@ footer{line-height:1.9}
 /* Accessible speech player progress */
 .speech-player{min-width:0}.speech-progress{display:block;width:100%;height:7px;margin:6px 0 3px;accent-color:#e4b83f}.speech-progress-label{font-size:.82rem;color:var(--muted,#64748b);margin:4px 0}.speech-transcript{overscroll-behavior:contain;scroll-behavior:smooth}
 @media(prefers-reduced-motion:reduce){.speech-transcript{scroll-behavior:auto}}
+
+/* Progressive lesson reading: reveal text in step with speech without moving the full page. */
+.speech-not-revealed{visibility:hidden;opacity:0}.speech-word{transition:background-color .12s,color .12s,opacity .18s}.speech-transcript{overflow-anchor:none}
+@media(prefers-reduced-motion:reduce){.speech-word{transition:none}}

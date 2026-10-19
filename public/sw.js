@@ -1,4 +1,4 @@
-const CACHE_NAME = 'taallam-shell-v2.73.0';
+const CACHE_NAME = 'taallam-shell-v2.74.0';
 const SHELL = ['/','/admin','/school-admin','/teacher','/student','/guardian','/styles.css','/app.js','/install.js','/manifest-public.webmanifest','/manifest-admin.webmanifest','/manifest-school-admin.webmanifest','/icons/taallam-learn-192.png','/icons/taallam-learn-512.png','/icons/taallam-admin-192.png','/icons/taallam-admin-512.png','/icons/taallam-school-192.png','/icons/taallam-school-512.png'];
 self.addEventListener('install', event => { event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(SHELL)).catch(()=>{})); self.skipWaiting(); });
 self.addEventListener('activate', event => { event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('taallam-shell-') && key !== CACHE_NAME).map(key => caches.delete(key)))).then(() => self.clients.claim())); });
