@@ -71,13 +71,15 @@ for (const name of ['manifest-public.webmanifest','manifest-admin.webmanifest','
 const installer = fs.readFileSync(path.join(root,'public','install.js'),'utf8');
 const serviceWorker = fs.readFileSync(path.join(root,'public','sw.js'),'utf8');
 checks.push(['installer keeps one declared manifest per portal', installer.includes("document.querySelector('link[rel=\\\"manifest\\\"]')")]);
-checks.push(['service worker cache is versioned for the three-app PWA architecture', serviceWorker.includes('taallam-shell-v2.55.0')]);
+checks.push(['service worker cache is versioned for the three-app PWA architecture', serviceWorker.includes('taallam-shell-v2.56.0')]);
 checks.push(['service worker caches the three installable manifests and distinct app icons', serviceWorker.includes('/manifest-public.webmanifest')&&serviceWorker.includes('/manifest-admin.webmanifest')&&serviceWorker.includes('/manifest-school-admin.webmanifest')&&serviceWorker.includes('/icons/taallam-admin-512.png')&&serviceWorker.includes('/icons/taallam-school-512.png')]);
 for (const [manifestName,iconBase] of [['manifest-public.webmanifest','taallam-learn'],['manifest-admin.webmanifest','taallam-admin'],['manifest-school-admin.webmanifest','taallam-school']]) { const m=JSON.parse(fs.readFileSync(path.join(root,'public',manifestName),'utf8')); checks.push([`${manifestName} uses its own distinct app icon`, m.icons.some(icon=>icon.src===`/icons/${iconBase}-192.png`)&&m.icons.some(icon=>icon.src===`/icons/${iconBase}-512.png`)]); }
 const installPages = { '/':'manifest-public.webmanifest', '/student':'manifest-public.webmanifest', '/teacher':'manifest-public.webmanifest', '/guardian':'manifest-public.webmanifest', '/admin':'manifest-admin.webmanifest', '/school-admin':'manifest-school-admin.webmanifest' };
 for (const [route, manifestName] of Object.entries(installPages)) { const file = route==='/' ? 'index.html' : route.slice(1)+'.html'; const html = fs.readFileSync(path.join(root,'public',file),'utf8'); checks.push([`${route} uses the intended shared install identity`, html.includes(`/`+manifestName)]); }
 for (const name of ['manifest-admin.webmanifest','manifest-school-admin.webmanifest']) { const m=JSON.parse(fs.readFileSync(path.join(root,'public',name),'utf8')); checks.push([`${name} scope includes its exact start URL`, m.scope===m.start_url]); }
 checks.push(['installer exposes only three installable identities', installer.includes("const roles={'/admin':'admin','/school-admin':'school-admin'}") && installer.includes("const role=roles[path]||'public'")]);
+const publicManifest = JSON.parse(fs.readFileSync(path.join(root,'public','manifest-public.webmanifest'),'utf8'));
+checks.push(['learning app has a unique install identity distinct from the site root and admin apps', publicManifest.id==='/learn-app' && publicManifest.start_url==='/' && publicManifest.scope==='/']);
 let failed = 0;
 for (const [label, ok] of checks) { console.log(`${ok ? 'PASS' : 'FAIL'} ${label}`); if (!ok) failed++; }
 console.log(`\n${checks.length - failed}/${checks.length} source checks passed.`);
