@@ -174,19 +174,26 @@ function curriculumContext(question, bookId){
   const db=readData(); const books=(db.books||[]).filter(b=>b.extractedText && b.extractedText.length>30);
   const chosen=bookId?books.filter(b=>b.id===bookId):books;
   if(!chosen.length)return null;
-  const terms=String(question||'').toLowerCase().replace(/[^\u0600-\u06ff\w\s]/g,' ').split(/\s+/).filter(w=>w.length>2&&!['كيف','ماذا','لماذا','اشرح','لي','من','الى','على','هذا','هذه','الذي','التي','عن','في','هل','أريد','اريد'].includes(w));
-  let best=null;
-  for(const book of chosen){
-    const chunks=String(book.extractedText).split(/\n{2,}|(?<=[.!؟])\s+/).map(x=>x.trim()).filter(x=>x.length>=45);
-    for(let i=0;i<chunks.length;i++){
-      const text=chunks[i]; const low=text.toLowerCase(); let score=0;
-      for(const term of terms) if(low.includes(term)) score++;
-      if(score && (!best||score>best.score)) best={book, text, score};
+  const q=String(question||'').trim();
+  // Resolve requests such as "اشرح الدرس الثاني" against headings extracted from the selected book.
+  const ordinalWords={'الأول':1,'الاول':1,'الأولى':1,'الاولى':1,'الثاني':2,'الثانية':2,'الثالث':3,'الثالثة':3,'الرابع':4,'الرابعة':4,'الخامس':5,'الخامسة':5,'السادس':6,'السادسة':6,'السابع':7,'السابعة':7,'الثامن':8,'الثامنة':8,'التاسع':9,'التاسعة':9,'العاشر':10,'العاشرة':10};
+  const lessonRequest=/درس|الدرس|lesson/i.test(q);
+  const ordinalMatch=q.match(/(?:الدرس|درس|lesson)\s*(?:رقم\s*)?([0-9٠-٩]+|الأول|الاول|الأولى|الاولى|الثاني|الثانية|الثالث|الثالثة|الرابع|الرابعة|الخامس|الخامسة|السادس|السادسة|السابع|السابعة|الثامن|الثامنة|التاسع|التاسعة|العاشر|العاشرة)/i);
+  const pageRequest=/صفحة|الصفحة|page/i.test(q);
+  if(pageRequest){return {book:chosen[0],excerpt:'',matched:false,reason:'page-index-unavailable'};}
+  if(lessonRequest&&ordinalMatch){
+    const raw=ordinalMatch[1]; const num=/^[0-9٠-٩]+$/.test(raw)?Number(raw.replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d))):ordinalWords[raw];
+    for(const book of chosen){
+      const text=String(book.extractedText); const heads=inferOutline(text).filter(h=>/^(?:الدرس|درس|Lesson)\b/i.test(h.title));
+      if(num&&heads.length>=num){const title=heads[num-1].title;const at=text.indexOf(title);const next=heads[num]?.title;const end=next?text.indexOf(next,at+title.length):-1;const excerpt=text.slice(at,end>at?end:Math.min(text.length,at+9000)).trim().slice(0,6500);if(excerpt.length>40)return {book,excerpt,matched:true,lessonTitle:title,lessonNumber:num};}
     }
+    return {book:chosen[0],excerpt:'',matched:false,reason:'lesson-not-found'};
   }
+  const terms=q.toLowerCase().replace(/[^\u0600-\u06ff\w\s]/g,' ').split(/\s+/).filter(w=>w.length>2&&!['كيف','ماذا','لماذا','اشرح','لي','من','الى','على','هذا','هذه','الذي','التي','عن','في','هل','أريد','اريد'].includes(w));
+  let best=null;
+  for(const book of chosen){const chunks=String(book.extractedText).split(/\n{2,}|(?<=[.!؟])\s+/).map(x=>x.trim()).filter(x=>x.length>=45);for(const text of chunks){const low=text.toLowerCase();let score=0;for(const term of terms)if(low.includes(term))score++;if(score&&(!best||score>best.score))best={book,text,score};}}
   if(!best)return {book:chosen[0],excerpt:'',matched:false};
-  const chunks=String(best.book.extractedText).split(/\n{2,}|(?<=[.!؟])\s+/).map(x=>x.trim()).filter(x=>x.length>=45);
-  const idx=chunks.indexOf(best.text); const excerpt=[chunks[idx-1],best.text,chunks[idx+1]].filter(Boolean).join('\n').slice(0,3500);
+  const chunks=String(best.book.extractedText).split(/\n{2,}|(?<=[.!؟])\s+/).map(x=>x.trim()).filter(x=>x.length>=45);const idx=chunks.indexOf(best.text);const excerpt=[chunks[idx-1],best.text,chunks[idx+1]].filter(Boolean).join('\n').slice(0,3500);
   return {book:best.book,excerpt,matched:true};
 }
 function demoAnswer(q){const n=q.toLowerCase();if(/نبات|الشمس|ضوء|الماء/.test(n))return 'سؤال جميل! يحتاج النبات إلى الماء والضوء والهواء لينمو. تساعده أشعة الشمس على صنع غذائه، وتمتص الجذور الماء من التربة. ما الأشياء التي يحتاجها النبات؟';if(/جمع|تفاح|٢|2|ثلاث|ثلاثة/.test(n))return 'في الجمع نضمّ الكميات إلى بعضها. مثلًا: تفاحتان ومعهما تفاحة واحدة يصبح لدينا ثلاث تفاحات: ٢ + ١ = ٣. هل تريد أن نجرب مثالًا آخر؟';if(/ألف|حرف|أسد|أرنب/.test(n))return 'حرف الألف هو (أ)، ونسمع صوته في بداية كلمات مثل «أسد» و«أرنب». هل تستطيع ذكر كلمة أخرى تبدأ بحرف الألف؟';return 'وصل سؤالك، لكن المعلّم الذكي غير مفعّل بعد. يمكن تفعيل الإجابات الذكية بإضافة مفتاح خدمة الذكاء الاصطناعي في إعدادات متغيرات البيئة على الخادم. إلى ذلك الحين، جرّب أحد الدروس المتاحة.';}
@@ -463,7 +470,7 @@ const server = http.createServer(async (req,res)=>{
   }
   if(req.method==='GET' && pathname==='/api/teacher/status') return send(res,200,{configured:Boolean(process.env.AI_API_KEY),model:process.env.AI_MODEL||'gpt-4o-mini'});
   if(req.method==='POST' && pathname==='/api/teacher/ask'){
-    try{const body=await readBody(req,12000);const question=String(body.question||'').trim();if(!question)return send(res,400,{error:'اكتب سؤالك أولًا.'});if(question.length>2000)return send(res,413,{error:'اختصر السؤال قليلًا ثم أرسله.'});const bookId=String(body.bookId||'').trim();if(!bookId)return send(res,400,{error:'اختر كتابًا من مكتبة المناهج حتى تكون الإجابة مستندة إلى محتوى الكتاب.'});const curriculum=curriculumContext(question,bookId);if(!curriculum)return send(res,404,{error:'لم نجد نصًا مستخرجًا لهذا الكتاب. تأكد من رفعه ونجاح قراءة PDF أولًا.'});if(!curriculum.matched)return send(res,200,{configured:Boolean(process.env.AI_API_KEY),grounded:true,matched:false,bookTitle:curriculum.book.title,answer:'لم أجد في النص المستخرج من كتاب «'+curriculum.book.title+'» فقرةً مرتبطة بسؤالك بدرجة كافية. جرّب صياغة السؤال بكلمات من الدرس، أو راجع الكتاب مع معلّمك. لن أستبدل محتوى المنهج بإجابة من خارج الكتاب.'});const result=await teacherAnswer(question,Array.isArray(body.history)?body.history:[],curriculum);return send(res,200,{...result,grounded:true,matched:true,bookTitle:curriculum.book.title});}catch(e){return send(res,e.status||502,{error:e.message||'تعذّر الحصول على إجابة الآن.'});}
+    try{const body=await readBody(req,12000);const question=String(body.question||'').trim();if(!question)return send(res,400,{error:'اكتب سؤالك أولًا.'});if(question.length>2000)return send(res,413,{error:'اختصر السؤال قليلًا ثم أرسله.'});const bookId=String(body.bookId||'').trim();if(!bookId)return send(res,400,{error:'اختر كتابًا من مكتبة المناهج حتى تكون الإجابة مستندة إلى محتوى الكتاب.'});const curriculum=curriculumContext(question,bookId);if(!curriculum)return send(res,404,{error:'لم نجد نصًا مستخرجًا لهذا الكتاب. تأكد من رفعه ونجاح قراءة PDF أولًا.'});if(!curriculum.matched){const answer=curriculum.reason==='page-index-unavailable'?'الكتاب موجود، لكن نسخة النص المستخرج لا تحتفظ بترقيم الصفحات. حتى لا أشرح صفحة خاطئة، افتح ملف PDF وحدد نص الصفحة أو اكتب عنوان الدرس، ثم أشرح لك محتواه.':'لم أتمكن من تحديد هذا الدرس داخل النص المستخرج من الكتاب. جرّب البحث بعنوان الدرس أو تأكد من أن ملف الكتاب قُرئ بصورة صحيحة.';return send(res,200,{configured:Boolean(process.env.AI_API_KEY),grounded:true,matched:false,bookTitle:curriculum.book.title,answer});}const result=await teacherAnswer(question,Array.isArray(body.history)?body.history:[],curriculum);return send(res,200,{...result,grounded:true,matched:true,bookTitle:curriculum.book.title});}catch(e){return send(res,e.status||502,{error:e.message||'تعذّر الحصول على إجابة الآن.'});}
   }
   if(req.method==='POST' && ['/api/books','/api/plans','/api/lessons'].includes(pathname)){
     if(!requireAdmin(req,res))return;
