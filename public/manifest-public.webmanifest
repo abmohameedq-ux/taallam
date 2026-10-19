@@ -12,20 +12,20 @@
   "theme_color": "#173f36",
   "icons": [
     {
-      "src": "/icons/taallam-192.png",
+      "src": "/icons/taallam-learn-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/taallam-512.png",
+      "src": "/icons/taallam-learn-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/taallam-192.svg",
-      "sizes": "192x192",
+      "src": "/icons/taallam-learn.svg",
+      "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
     }
