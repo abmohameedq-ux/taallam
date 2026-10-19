@@ -77,7 +77,7 @@ for (const name of ['manifest-public.webmanifest','manifest-admin.webmanifest','
 const installer = fs.readFileSync(path.join(root,'public','install.js'),'utf8');
 const serviceWorker = fs.readFileSync(path.join(root,'public','sw.js'),'utf8');
 checks.push(['installer keeps one declared manifest per portal', installer.includes("document.querySelector('link[rel=\\\"manifest\\\"]')")]);
-checks.push(['public service worker cache is versioned for the three-app PWA architecture', serviceWorker.includes('taallam-shell-v2.81.0')]);
+checks.push(['public service worker cache is versioned for the three-app PWA architecture', serviceWorker.includes('taallam-shell-v2.84.0')]);
 for (const [role, scope, cache] of [['admin','/admin/','taallam-admin-shell-v2.74.0'],['school-admin','/school-admin/','taallam-school-admin-shell-v2.74.0']]) { const worker=fs.readFileSync(path.join(root,'public',role,'sw.js'),'utf8'); checks.push([`${role} has an independent scoped service worker`, worker.includes(`const CACHE_NAME = '${cache}'`) && worker.includes(`caches.match('${scope}')`)]); }
 checks.push(['admin portals register separate scoped service workers', installer.includes("role==='admin'?'/admin/sw.js':role==='school-admin'?'/school-admin/sw.js':'/sw.js'") && installer.includes("scope,updateViaCache:'none'")]);
 checks.push(['service worker caches the three installable manifests and distinct app icons', serviceWorker.includes('/manifest-public.webmanifest')&&serviceWorker.includes('/manifest-admin.webmanifest')&&serviceWorker.includes('/manifest-school-admin.webmanifest')&&serviceWorker.includes('/icons/taallam-admin-512.png')&&serviceWorker.includes('/icons/taallam-school-512.png')]);
@@ -96,6 +96,12 @@ checks.push(['student portal includes offline Arabic letters and words practice'
 checks.push(['reading practice gives feedback, speech playback, and saves local progress', fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('function readingCheck(letter,btn)') && fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('readingSave()') && fs.readFileSync(path.join(root,'public','student.html'),'utf8').includes('id="readingSpeak"')]);
 
 const studentHtml = fs.readFileSync(path.join(root,'public','student.html'),'utf8');
+checks.push(['student portal has a redesigned in-page learning workspace instead of the old modal navigation', studentHtml.includes('class="dashboard-layout"') && studentHtml.includes('class="student-sidebar"') && studentHtml.includes('class="student-workspace"') && !studentHtml.includes('studentModalBackdrop')]);
+checks.push(['student home has task-based launch cards for lessons, books, school posts, and progress', ['tutor','books','posts','work'].every(tab => studentHtml.includes('data-open-student-tab="'+tab+'"')) && studentHtml.includes('class="learning-hero"')]);
+checks.push(['student navigation switches panels in-page and preserves all existing student sections', studentHtml.includes('function studentTab(tab){') && studentHtml.includes('p.hidden=p!==panel') && ['home','posts','books','tutor','work'].every(tab => studentHtml.includes('data-student-panel="'+tab+'"'))]);
+checks.push(['student authentication screen has a separate login and registration card layout', studentHtml.includes('class="auth-shell"') && studentHtml.includes('class="auth-form login-form"') && studentHtml.includes('class="auth-form register-form"')]);
+checks.push(['student learning area has distinct modes for curriculum, AI tutor, guided lesson, maths lab, and reading practice', ['curriculum','smart','guided','math','reading'].every(mode => studentHtml.includes('data-tutor-view="'+mode+'"') && studentHtml.includes('data-learning-mode="'+mode+'"'))]);
+checks.push(['learning mode selector shows only the selected learning service', studentHtml.includes('function setLearningMode(mode)') && studentHtml.includes('v.hidden=v.dataset.tutorView!==mode') && studentHtml.includes('id="learningModeStatus"')]);
 checks.push(['student portal includes guided lesson sequence from explanation to completion', studentHtml.includes('id=\"guidedLesson\"') && studentHtml.includes('function lessonRender()') && studentHtml.includes('function lessonAnswer(value,button)')]);
 checks.push(['guided lessons cover literacy and four foundational maths topics', ['letters','add','subtract','multiply','compare'].every(topic => studentHtml.includes(topic+':{title:'))]);
 checks.push(['guided lesson provides stage progress, speech readout, and hints', studentHtml.includes('id=\"lessonProgressBar\"') && studentHtml.includes('id=\"lessonRead\"') && studentHtml.includes('hint:')]);
@@ -104,10 +110,17 @@ checks.push(['student curriculum navigator offers grade, subject, book, unit, an
 checks.push(['student curriculum navigator only lists approved lessons for the selected book and unit', studentHtml.includes('curriculumLessons.filter(l=>l.sourceBookId===bookId&&(!unitId||l.unitId===unitId))') && studentHtml.includes("d.lessons.filter(x=>x.status==='approved')")]);
 checks.push(['student can preview approved lesson content and launch an explanation from it', studentHtml.includes('id=\"curriculumLessonPreview\"') && studentHtml.includes('id=\"curriculumStudyLesson\"') && studentHtml.includes('sendTutorQuestion(`اشرح درس')]);
 
+
+
+checks.push(['teacher request UI is compact with explain and voice controls only', fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('id="askBtn"') && fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('id="voiceBtn"') && !fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('data-teacher-prompt=')]);
+
+const adminHtml = fs.readFileSync(path.join(root,'public','school-admin.html'),'utf8');
+checks.push(['school admin report includes server-backed student learning progress', adminHtml.includes('id="learningProgressReport"') && adminHtml.includes('function renderLearningProgressReport()') && adminHtml.includes("'/api/school-admin/learning-progress'")]);
+checks.push(['math practice results sync to the authenticated student progress API', studentHtml.includes('function savePracticeProgress(') && studentHtml.includes("savePracticeProgress('math'") && studentHtml.includes("activity:area==='reading'?'reading-lab':'math-lab'")]);
+checks.push(['Arabic reading practice results sync to the authenticated student progress API', studentHtml.includes("savePracticeProgress('reading'") && studentHtml.includes('الحروف والكلمات:')]);
+checks.push(['guardian progress uses the same server-backed lesson records as student and school admin', fs.readFileSync(path.join(root,'server.js'),'utf8').includes('const learningEvents=student?(readJsonFile(learningProgressFile,{events:[]}).events||[]).filter(x=>x.schoolId===l.schoolId&&x.studentId===student.id):[]')]);
+
 let failed = 0;
 for (const [label, ok] of checks) { console.log(`${ok ? 'PASS' : 'FAIL'} ${label}`); if (!ok) failed++; }
 console.log(`\n${checks.length - failed}/${checks.length} source checks passed.`);
 if (failed) process.exitCode = 1;
-
-checks.push(['teacher request UI is compact with explain and voice controls only', fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('id="askBtn"') && fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('id="voiceBtn"') && !fs.readFileSync(path.join(root,'public','index.html'),'utf8').includes('data-teacher-prompt=')]);
-
