@@ -81,27 +81,38 @@
   }
 
   // ---------- text to speech with word highlighting ----------
-  const TTS = { ok: 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window, voice: null, rate: .9, msPerChar: 80, cur: null, est: [], reading: false };
+  // Two engines: the device voice (free, but missing/blocked on many phones) and a cloud voice served by the platform.
+  const TTS = { ok: 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window, voice: null, arabic: 0, rate: .9, msPerChar: 80, cur: null, est: [], reading: false, audioEl: null, raf: 0, ctl: null, usingCloud: false, lastError: '' };
+  const CLOUD = { ok: false };
+  const SILENT = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=';
+  const CAUDIO = new Map();
   function pickVoice() {
     if (!TTS.ok) return;
-    const ar = (speechSynthesis.getVoices() || []).filter(v => /^ar([_-]|$)/i.test(v.lang || ''));
+    const ar = (speechSynthesis.getVoices() || []).filter(v => /^ar([_-]|$)/i.test(v.lang || '')); TTS.arabic = ar.length;
     const same = (v, c) => v.lang.replace('_', '-').toLowerCase() === String(c).toLowerCase();
     let best = null;
     for (const c of [P.dialect, 'ar-SA', 'ar-EG', 'ar-AE', 'ar']) { best = ar.find(v => same(v, c) && v.localService) || ar.find(v => same(v, c)); if (best) break; }
     TTS.voice = best || ar[0] || null;
   }
   if (TTS.ok) { pickVoice(); try { speechSynthesis.addEventListener('voiceschanged', pickVoice); } catch {} }
-  function prime() { try { if (!TTS.ok) return; const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch {} }
+  // must run inside a tap/click so the browser allows sound later (needed on iPhone and some Androids)
+  function prime() {
+    try { if (TTS.ok) { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } } catch {}
+    try { const a = TTS.audioEl || (TTS.audioEl = new Audio()); a.src = SILENT; const pr = a.play(); if (pr && pr.catch) pr.catch(() => {}); } catch {}
+  }
   function clearEst() { TTS.est.forEach(clearTimeout); TTS.est = []; }
-  function stopSpeech() { TTS.cur = null; TTS.reading = false; clearEst(); try { if (TTS.ok) speechSynthesis.cancel(); } catch {} }
+  function stopSpeech() {
+    TTS.cur = null; TTS.reading = false; clearEst(); cancelAnimationFrame(TTS.raf);
+    try { if (TTS.ctl) TTS.ctl.abort(); } catch {} TTS.ctl = null;
+    try { if (TTS.audioEl) { TTS.audioEl.onended = TTS.audioEl.onerror = null; TTS.audioEl.pause(); } } catch {}
+    try { if (TTS.ok) speechSynthesis.cancel(); } catch {}
+  }
   function mark(words, i) { words.forEach((w, j) => { w.classList.toggle('now', j === i); w.classList.toggle('said', j < i); }); }
-  function speak(text, words = [], cb = {}) {
-    stopSpeech();
-    if (!TTS.ok) { cb.onFail && cb.onFail('no-tts'); return; }
+  function speakDevice(text, words, cb) {
     const starts = []; let pos = 0;
     for (const w of words) { const k = text.indexOf(w.textContent, pos); starts.push(k < 0 ? pos : k); pos = (k < 0 ? pos : k) + w.textContent.length; }
     const attempt = useVoice => {
-      const token = {}; TTS.cur = token; TTS.reading = true;
+      const token = {}; TTS.cur = token; TTS.reading = true; TTS.usingCloud = false;
       const u = new SpeechSynthesisUtterance(text); u.rate = TTS.rate; u.pitch = P.stage === 'kids' ? 1.12 : 1;
       u.lang = useVoice && TTS.voice ? TTS.voice.lang : (P.dialect || 'ar-SA'); if (useVoice && TTS.voice) u.voice = TTS.voice;
       let started = false, gotBoundary = false, t0 = 0, watch = null;
@@ -124,19 +135,62 @@
       };
       u.onerror = e => {
         if (!live()) return; if (e.error === 'canceled' || e.error === 'interrupted') return;
-        clearEst(); clearTimeout(watch); if (useVoice && TTS.voice) { attempt(false); return; }
+        clearEst(); clearTimeout(watch); TTS.lastError = 'device:' + (e.error || 'error');
+        if (useVoice && TTS.voice) { attempt(false); return; }
         TTS.reading = false; cb.onFail && cb.onFail(e.error || 'error');
       };
       watch = setTimeout(() => {
         if (!live() || started) return; try { speechSynthesis.cancel(); } catch {}
-        if (useVoice && TTS.voice) attempt(false); else { TTS.reading = false; cb.onFail && cb.onFail('no-start'); }
-      }, 4500);
+        if (useVoice && TTS.voice) attempt(false); else { TTS.lastError = 'device:no-start'; TTS.reading = false; cb.onFail && cb.onFail('no-start'); }
+      }, 4000);
       try { speechSynthesis.cancel(); } catch {}
-      setTimeout(() => { if (live()) { try { speechSynthesis.speak(u); } catch { cb.onFail && cb.onFail('speak-failed'); } } }, 90);
+      setTimeout(() => { if (live()) { try { speechSynthesis.speak(u); } catch { TTS.lastError = 'device:speak-failed'; cb.onFail && cb.onFail('speak-failed'); } } }, 90);
     };
     attempt(true);
   }
+  async function cloudAudio(text, track) {
+    if (CAUDIO.has(text)) return CAUDIO.get(text);
+    const ctl = new AbortController(); if (track) TTS.ctl = ctl;
+    const r = await fetch('/api/learn/speak', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }), signal: ctl.signal });
+    if (!r.ok) throw new Error('http-' + r.status);
+    const url = URL.createObjectURL(await r.blob()); CAUDIO.set(text, url);
+    if (CAUDIO.size > 40) { const k = CAUDIO.keys().next().value; URL.revokeObjectURL(CAUDIO.get(k)); CAUDIO.delete(k); }
+    return url;
+  }
+  function speakCloud(text, words, cb) {
+    const token = {}; TTS.cur = token; TTS.reading = true; TTS.usingCloud = true; const live = () => TTS.cur === token;
+    const fail = why => { if (!live()) return; TTS.reading = false; TTS.lastError = 'cloud:' + why; cb.onFail && cb.onFail(why); };
+    cloudAudio(text, true).then(url => {
+      if (!live()) return;
+      const a = TTS.audioEl || (TTS.audioEl = new Audio()); a.src = url;
+      const weights = words.map(w => w.textContent.length + 2), total = weights.reduce((x, y) => x + y, 0) || 1;
+      const loop = () => {
+        if (!live()) return; const d = a.duration;
+        if (words.length && isFinite(d) && d > 0) { const target = a.currentTime / d * total; let acc = 0, idx = weights.length - 1; for (let i = 0; i < weights.length; i++) { acc += weights[i]; if (target < acc) { idx = i; break; } } mark(words, idx); }
+        TTS.raf = requestAnimationFrame(loop);
+      };
+      a.onended = () => { if (!live()) return; cancelAnimationFrame(TTS.raf); TTS.reading = false; mark(words, words.length); cb.onEnd && cb.onEnd(); };
+      a.onerror = () => fail('audio-error');
+      const pr = a.play(); (pr && pr.then ? pr : Promise.resolve()).then(() => { if (live()) TTS.raf = requestAnimationFrame(loop); }).catch(e => fail(e && e.name || 'play-blocked'));
+    }).catch(e => { if (e && e.name === 'AbortError') return; fail(e && e.message || 'network'); });
+  }
+  function speak(text, words = [], cb = {}) {
+    stopSpeech();
+    const mode = P.voiceMode || 'auto';
+    const toCloud = why => { if (CLOUD.ok) speakCloud(text, words, cb); else { TTS.lastError = TTS.lastError || why; cb.onFail && cb.onFail(why); } };
+    if (mode === 'cloud') return toCloud('cloud-off');
+    if (TTS.ok && (mode === 'device' || !P.deviceBad)) {
+      return speakDevice(text, words, { onEnd: cb.onEnd, onFail: why => {
+        if (mode === 'auto' && CLOUD.ok) { P.deviceBad = true; save(); speakCloud(text, words, cb); } else cb.onFail && cb.onFail(why);
+      } });
+    }
+    toCloud('no-tts');
+  }
   const say = text => speak(text, [], {});
+  function prefetchNext(text) { if (TTS.usingCloud && text) cloudAudio(text, false).catch(() => {}); }
+  function voiceReport() {
+    return `النطق في الجهاز: ${TTS.ok ? 'مدعوم' : 'غير مدعوم'} · أصوات عربية مثبتة: ${AR(TTS.arabic)} · الصوت السحابي: ${CLOUD.ok ? 'متاح' : 'غير مفعّل'}${P.deviceBad ? ' · (تم تحويلك للصوت السحابي لأن صوت الجهاز فشل)' : ''}${TTS.lastError ? ' · آخر خطأ: ' + TTS.lastError : ''}`;
+  }
 
   // ---------- speech to text ----------
   let rec = null;
@@ -213,15 +267,21 @@
       const stageBtns = [['kids', '🧒', 'أنا في الصفوف الأولى', 'ألعاب وشرح مبسّط'], ['reader', '📚', 'أقرأ بنفسي', 'شرح وملخصات وأسئلة']].map(([v, em, t, s]) =>
         el('button', { class: 'big' + (draft.stage === v ? ' primary' : ''), type: 'button', onclick: () => { draft.stage = v; stageBtns.forEach(b => b.classList.remove('primary')); stageBtns[v === 'kids' ? 0 : 1].classList.add('primary'); } }, el('span', { class: 'em', text: em }), el('div', {}, t, el('small', { text: s }))));
       const avs = ['🦉', '🐱', '🦁', '🐼', '🦊', '🐯'].map(a => el('button', { class: 'av' + (a === draft.avatar ? ' on' : ''), type: 'button', 'aria-label': 'صورة ' + a, text: a, onclick: () => { draft.avatar = a; avs.forEach(b => b.classList.toggle('on', b.textContent === a)); } }));
+      const grade = el('select', { class: 'input', 'aria-label': 'صفي الدراسي' }, el('option', { value: '', text: 'كل الصفوف' }));
+      getLib().then(bs => { const gs = [...new Set(bs.map(b => String(b.grade || '').trim()).filter(Boolean))]; if (P.grade && !gs.includes(P.grade)) gs.unshift(P.grade); gs.forEach(g => grade.append(el('option', { value: g, text: g }))); grade.value = P.grade || ''; }).catch(() => {});
+      const vmode = el('select', { class: 'input', 'aria-label': 'نوع الصوت' }, ...[['auto', 'تلقائي (الأفضل)'], ['cloud', 'صوت المنصة (يعمل على كل الأجهزة)'], ['device', 'صوت الجهاز']].map(([v, t]) => el('option', { value: v, text: t, selected: (P.voiceMode || 'auto') === v })));
+      const diag = el('div', { class: 'notice', text: voiceReport() });
+      const testBtn = el('button', { class: 'btn alt', type: 'button', text: '🔊 جرّب الصوت', onclick: () => { prime(); P.voiceMode = vmode.value; if (vmode.value !== 'cloud') P.deviceBad = false; diag.textContent = 'أحاول التشغيل…'; speak('مرحبًا، أنا الهيثم. هل تسمعني؟', [], { onEnd: () => { diag.textContent = '✅ تم تشغيل الصوت. ' + voiceReport(); }, onFail: why => { diag.textContent = '❌ فشل التشغيل (' + why + '). ' + voiceReport(); } }); setTimeout(() => { if (/أحاول/.test(diag.textContent)) diag.textContent = voiceReport(); }, 9000); } });
       const dialect = el('select', { class: 'input', 'aria-label': 'لهجة الصوت' }, ...[['ar-SA', 'السعودية / اليمن'], ['ar-EG', 'مصر'], ['ar-AE', 'الإمارات'], ['ar-JO', 'الأردن'], ['ar-MA', 'المغرب']].map(([v, t]) => el('option', { value: v, text: t, selected: P.dialect === v })));
       const sound = el('input', { type: 'checkbox', checked: P.sound, style: 'width:26px;height:26px' });
       const done = el('button', { class: 'btn', type: 'button', text: first ? 'هيا نبدأ 🚀' : 'حفظ', onclick: () => {
         if (!draft.stage) { toast('اختر: هل أنت في الصفوف الأولى أم تقرأ بنفسك؟'); return; }
-        P.stage = draft.stage; P.avatar = draft.avatar; P.name = name.value.trim().slice(0, 20); P.dialect = dialect.value; P.sound = sound.checked; save(); pickVoice();
+        P.stage = draft.stage; P.avatar = draft.avatar; P.name = name.value.trim().slice(0, 20); P.dialect = dialect.value; P.sound = sound.checked; if (grade.value !== (P.grade || '')) P.gradeManual = true; P.grade = grade.value; if (vmode.value !== (P.voiceMode || 'auto')) P.deviceBad = false; P.voiceMode = vmode.value; save(); pickVoice();
         document.body.classList.toggle('kids', P.stage === 'kids'); buildHome(); renderHeader(); renderGreeting(); closeSheet(); if (first) toast('أهلًا ' + (P.name || 'يا صديقي') + '! اختر ما تحب 👇');
       } });
       setBody(el('p', { class: 'bubble center', text: 'أنا الهيثم 🦉 معلّمك الصديق. من أنت؟' }), ...stageBtns, name, el('div', { class: 'avatars' }, avs),
-        el('label', { class: 'row', style: 'align-items:center' }, el('span', { text: 'لهجة الصوت والتعرّف على الكلام' }), dialect), el('label', { class: 'row', style: 'align-items:center;justify-content:flex-start' }, sound, el('span', { text: 'أصوات المؤثرات' })),
+        el('label', { style: 'display:flex;flex-direction:column;gap:4px' }, el('span', { text: 'صفي الدراسي (لعرض كتبي فقط)' }), grade), el('label', { style: 'display:flex;flex-direction:column;gap:4px' }, el('span', { text: 'صوت القراءة' }), vmode), testBtn, diag,
+        el('label', { class: 'row', style: 'align-items:center' }, el('span', { text: 'لهجة التعرّف على كلامك' }), dialect), el('label', { class: 'row', style: 'align-items:center;justify-content:flex-start' }, sound, el('span', { text: 'أصوات المؤثرات' })),
         done, !first ? el('p', { class: 'hint', text: 'بياناتك محفوظة على هذا الجهاز فقط.' }) : null);
     }
   }
@@ -230,14 +290,26 @@
   let LIB = null;
   async function getLib() { if (!LIB) LIB = (await api('/api/learn/library')).books; return LIB; }
   function openLearn(purpose, opts = {}) { openSheet(purpose === 'quiz' ? 'اختبرني' : (opts.mic ? 'اسأل بصوتك' : 'تعلّم'), () => screenBooks(purpose, opts)); }
+  const SUBJ = [[/رياض/, '🔢'], [/علوم|احياء|أحياء|فيزياء|كيمياء/, '🔬'], [/عرب|لغتي|قراءة|نحو/, '📝'], [/اسلام|إسلام|قرآن|قران|دين/, '🕌'], [/انجليز|إنجليز|english/i, '🔤'], [/اجتماع|تاريخ|جغراف|وطن/, '🌍'], [/حاسوب|تقنية|حاسب/, '💻'], [/فن|رسم/, '🎨']];
+  const subjEm = t => (SUBJ.find(([re]) => re.test(t || '')) || [0, '📘'])[1];
+  const sameGrade = (a, b) => String(a || '').replace(/\s+/g, ' ').trim() === String(b || '').replace(/\s+/g, ' ').trim();
   async function screenBooks(purpose, opts) {
     const sid = S.sid; setBody(loading('أحضر كتبك…'));
     let books; try { books = await getLib(); } catch (e) { if (sid === S.sid) setBody(errorBox(e.message, () => { LIB = null; screenBooks(purpose, opts); })); return; }
     if (sid !== S.sid) return;
-    if (!books.length) { setBody(el('div', { class: 'center', style: 'flex:1;display:flex;flex-direction:column;gap:10px' }, el('div', { class: 'owl', text: '📚' }), el('p', { class: 'bubble', text: 'لا توجد كتب في المكتبة بعد. اطلب من إدارة المنصة رفع كتاب المنهج.' }), el('button', { class: 'btn', text: 'العب بدلًا من ذلك 🎮', onclick: () => show('ألعاب', screenGames, true) }))); return; }
-    const remembered = books.find(b => b.id === P.lastBook);
-    if (books.length === 1 || (opts.mic && remembered && !opts.change)) { const b = books.length === 1 ? books[0] : remembered; show(b.title, () => screenPick(b, purpose, opts), true); return; }
-    setBody(el('p', { class: 'bubble center', text: 'اختر الكتاب' }), books.map(b => el('button', { class: 'big', type: 'button', onclick: () => { P.lastBook = b.id; save(); show(b.title, () => screenPick(b, purpose, opts)); } }, el('span', { class: 'em', text: '📘' }), el('div', {}, b.title, el('small', { text: [b.subject, b.grade].filter(Boolean).join(' · ') })))));
+    if (!books.length) { setBody(el('div', { class: 'center', style: 'flex:1;display:flex;flex-direction:column;gap:10px' }, el('div', { class: 'owl', text: '📚' }), el('p', { class: 'bubble', text: 'لا توجد كتب في المكتبة بعد. اطلب من إدارة المدرسة أو المنصة رفع الكتب.' }), el('button', { class: 'btn', text: 'العب بدلًا من ذلك 🎮', onclick: () => show('ألعاب', screenGames, true) }))); return; }
+    let list = books, filtered = false;
+    if (P.grade && !opts.showAll) { const f = books.filter(b => !b.grade || sameGrade(b.grade, P.grade)); if (f.length) { list = f; filtered = true; } }
+    const groups = new Map(); for (const b of list) { const k = b.subject || 'كتب أخرى'; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(b); }
+    const nodes = [el('p', { class: 'bubble center', text: groups.size > 1 ? 'ماذا تريد أن تذاكر؟ اختر الكتاب' : 'اختر الكتاب' })];
+    if (filtered) nodes.push(el('div', { class: 'hint', text: 'كتب ' + P.grade }));
+    for (const [subject, arr] of groups) {
+      if (groups.size > 1) nodes.push(el('h3', { class: 'sub', text: subjEm(subject) + ' ' + subject }));
+      for (const b of arr) nodes.push(el('button', { class: 'big', type: 'button', onclick: () => { P.lastBook = b.id; save(); show(b.title, () => screenPick(b, purpose, opts)); } },
+        el('span', { class: 'em', text: subjEm(b.subject || b.title) }), el('div', {}, (b.id === P.lastBook ? '⭐ ' : '') + b.title, el('small', { text: [b.subject, b.grade, b.term].filter(Boolean).join(' · ') }))));
+    }
+    if (filtered) nodes.push(el('button', { class: 'btn alt', type: 'button', text: 'عرض كتب كل الصفوف', onclick: () => show('اختر الكتاب', () => screenBooks(purpose, { ...opts, showAll: true }), true) }));
+    setBody(nodes);
   }
   function screenPick(book, purpose, opts) {
     const input = el('input', { class: 'input', placeholder: purpose === 'quiz' ? 'مثال: اختبرني في الدرس الأول' : 'مثال: اشرح لي الوحدة الأولى', 'aria-label': 'اكتب طلبك', maxlength: '200' });
@@ -279,7 +351,7 @@
     } catch (e) { if (sid === S.sid) setTransient(errorBox(e.message, () => startTeach(ctx, mode, question, replace)), el('button', { class: 'btn alt', text: 'رجوع', onclick: back })); }
   }
   function drawTeach(d) {
-    const slides = d.slides, last = slides.length - 1; let i = 0, auto = true, words = [];
+    const slides = d.slides.map(x => typeof x === 'string' ? { t: x, src: false } : x), last = slides.length - 1; let i = 0, auto = true, words = [];
     const dots = el('div', { class: 'dots', 'aria-hidden': 'true' }, slides.map(() => el('i')));
     const box = el('div', { class: 'slide', 'aria-live': 'polite' });
     const prev = el('button', { class: 'btn alt', type: 'button', text: '▶ السابق', 'aria-label': 'السابق', onclick: () => { render(i - 1); } });
@@ -288,15 +360,15 @@
     const quizBtn = el('button', { class: 'act', type: 'button', onclick: () => startQuiz(S.ctx, 5) }, el('span', { text: '❓' }), 'اختبرني');
     function read() {
       play.textContent = '⏸ إيقاف';
-      speak(slides[i], words, {
+      prefetchNext(slides[i + 1] && slides[i + 1].t); speak(slides[i].t, words, {
         onEnd() { play.textContent = '🔊 اقرأ'; if (!auto) return; if (i < last) render(i + 1); else finish(); },
-        onFail() { auto = false; play.textContent = '🔊 اقرأ'; toast('الصوت غير متاح على هذا الجهاز الآن. يمكنك القراءة من الشاشة.'); }
+        onFail(why) { auto = false; play.textContent = '🔊 اقرأ'; toast('تعذّر تشغيل الصوت (' + why + '). افتح ⚙️ إعداداتي ← «جرّب الصوت» لمعرفة السبب.'); }
       });
     }
     function render(n) {
       i = Math.max(0, Math.min(last, n)); stopSpeech();
       [...dots.children].forEach((x, k) => x.className = k === i ? 'on' : (k < i ? 'done' : ''));
-      const tokens = slides[i].split(/\s+/).filter(Boolean); words = tokens.map(t => el('span', { class: 'w', text: t }));
+      box.classList.toggle('src', slides[i].src); const tokens = slides[i].t.split(/\s+/).filter(Boolean); words = tokens.map(t => el('span', { class: 'w', text: t }));
       const p = el('p'); words.forEach((w, k) => { p.append(w); if (k < words.length - 1) p.append(' '); }); box.replaceChildren(p);
       prev.disabled = i === 0; next.textContent = i === last ? 'أنهيت ✓' : 'التالي ◀';
       if (auto) read(); else play.textContent = '🔊 اقرأ';
@@ -443,6 +515,10 @@
   touchStreak(); document.body.classList.toggle('kids', P.stage === 'kids');
   buildHome(); renderHeader(); renderGreeting();
   if (!P.stage) openSettings(true);
+  api('/api/learn/status').then(d => { CLOUD.ok = Boolean(d.tts); }).catch(() => {});
+  api('/api/school-member/me').then(d => {
+    if (d && d.authenticated && d.member && d.member.role === 'student' && d.member.grade) { S.school = d.school; if (!P.gradeManual && P.grade !== d.member.grade) { P.grade = d.member.grade; save(); } }
+  }).catch(() => {});
   window.addEventListener('pagehide', stopSpeech);
   window.__taallam = { speak, stopSpeech, P: () => P, el };
 })();
