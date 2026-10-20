@@ -149,8 +149,22 @@ async function extractPdfContent(buffer) {
   return { parsed, text, ocrUsed, ocrPages, ocrPartial: ocrUsed && ocrPages < (Number(parsed.numpages) || ocrPages) };
 }
 
+function aiProvider(){return String(process.env.AI_PROVIDER||'openai-compatible').toLowerCase().trim();}
+async function generateGeminiContent({model,contents,systemInstruction='',generationConfig={}}){
+  const key=process.env.AI_API_KEY;if(!key)throw new Error('AI_API_KEY_MISSING');
+  const base=(process.env.GEMINI_API_BASE_URL||'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/,'');
+  const url=base+'/models/'+encodeURIComponent(model)+':generateContent?key='+encodeURIComponent(key);
+  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),60000);
+  try{
+    const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents,...(systemInstruction?{systemInstruction:{parts:[{text:systemInstruction}]}}:{}),generationConfig}),signal:controller.signal});
+    const payload=await response.json().catch(()=>({}));
+    if(!response.ok){console.error('Gemini provider returned status',response.status);throw new Error('GEMINI_PROVIDER_'+response.status);}
+    const answer=(payload.candidates?.[0]?.content?.parts||[]).map(part=>part.text||'').join('\n').trim();
+    if(!answer)throw new Error('GEMINI_EMPTY_RESPONSE');return answer;
+  }finally{clearTimeout(timer);}
+}
 function visualBookConfig(){
-  return {model:process.env.AI_VISION_MODEL||process.env.AI_MODEL||'gpt-4o-mini',maxPages:0,batchSize:Math.max(1,Math.min(20,Number.parseInt(process.env.VISION_PAGE_BATCH_SIZE||'10',10)||10))};
+  return {model:process.env.AI_VISION_MODEL||process.env.AI_MODEL||(aiProvider()==='gemini'?'gemini-2.5-flash':'gpt-4o-mini'),maxPages:0,batchSize:Math.max(1,Math.min(20,Number.parseInt(process.env.VISION_PAGE_BATCH_SIZE||'10',10)||10))};
 }
 function saveBookVisualProgress(bookId, update){
   const db=readData(); const book=(db.books||[]).find(b=>b.id===bookId); if(!book)return false;
@@ -164,11 +178,16 @@ async function describeOneBookPage(imagePath, pageNumber){
   const prompt=`أنت مساعد متخصص في قراءة الكتب المدرسية العربية بصريًا. حلّل الصفحة رقم ${pageNumber} من كتاب مدرسي. صف بدقة أي رسوم توضيحية، مخططات، جداول، خرائط، أشكال هندسية، تجارب، خطوات مرسومة، أمثلة محلولة، صور تعليمية، محاور ورسوم بيانية، رموز أو تسميات ظاهرة. انسخ الكلمات والأرقام الظاهرة التي تساعد على فهم الرسم عند وضوحها. اذكر موضع الرسم أو الجدول وعلاقته بموضوع الصفحة إذا أمكن. إذا لم يوجد عنصر بصري تعليمي مهم، اكتب «لا يوجد عنصر بصري تعليمي بارز». لا تخمّن الأرقام أو التسميات غير الواضحة، وميّز بين ما تراه وما لا تستطيع قراءته. أجب بالعربية في فقرة منظمة وموجزة.`;
   const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),60000);
   try{
-    const response=await fetch(base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model,messages:[{role:'user',content:[{type:'text',text:prompt},{type:'image_url',image_url:{url:'data:image/jpeg;base64,'+imageData,detail:'high'}}]}],temperature:0.1,max_tokens:450}),signal:controller.signal});
-    const payload=await response.json().catch(()=>({}));
-    if(!response.ok)throw new Error('VISION_PROVIDER_'+response.status);
-    const content=payload.choices?.[0]?.message?.content;
-    const description=typeof content==='string'?content.trim():Array.isArray(content)?content.map(x=>x.text||'').join('\n').trim():'';
+    let description='';
+    if(aiProvider()==='gemini'){
+      description=await generateGeminiContent({model,contents:[{role:'user',parts:[{text:prompt},{inlineData:{mimeType:'image/jpeg',data:imageData}}]}],generationConfig:{temperature:0.1,maxOutputTokens:450}});
+    }else{
+      const response=await fetch(base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model,messages:[{role:'user',content:[{type:'text',text:prompt},{type:'image_url',image_url:{url:'data:image/jpeg;base64,'+imageData,detail:'high'}}]}],temperature:0.1,max_tokens:450}),signal:controller.signal});
+      const payload=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error('VISION_PROVIDER_'+response.status);
+      const content=payload.choices?.[0]?.message?.content;
+      description=typeof content==='string'?content.trim():Array.isArray(content)?content.map(x=>x.text||'').join('\n').trim():'';
+    }
     if(!description)throw new Error('VISION_EMPTY_RESPONSE');
     return description.slice(0,2200);
   } finally {clearTimeout(timer);}
@@ -239,19 +258,26 @@ async function teacherAnswer(question, history=[], curriculum=null){
   const key=process.env.AI_API_KEY;
   if(!key) return {configured:false, grounded:Boolean(curriculum), bookTitle:curriculum?.book?.title||null, answer:curriculum?'الكتاب «'+curriculum.book.title+'» محدد، لكن خدمة المعلّم الذكي غير مفعّلة على الخادم؛ لذلك لا أريد عرض كلمات مستخرجة من PDF وكأنها شرح صحيح. فعّل AI_API_KEY في إعدادات الاستضافة، ثم أعد طلب الشرح.':'خدمة المعلّم الذكي غير مفعّلة على الخادم.'};
   const base=(process.env.AI_BASE_URL||'https://api.openai.com/v1').replace(/\/$/,'');
-  const model=process.env.AI_MODEL||'gpt-4o-mini';
+  const model=process.env.AI_MODEL||(aiProvider()==='gemini'?'gemini-2.5-flash':'gpt-4o-mini');
   const groundedRules=curriculum?`\n\nقيد تعليمي إلزامي: افهم سؤال الطفل بصيغته الطبيعية واللهجة ولا تشترط تطابق كلمات السؤال مع نص الكتاب. أجب اعتمادًا على المقتطف من الكتاب المحدد، ولا تنسب للكتاب معلومات غير موجودة فيه. إذا طلب شرحًا عامًا، ابدأ بشرح تمهيدي مما يظهر في المقتطف؛ وإذا لم يكفِ النص فاطلب منه عنوان الدرس أو توضيحًا بلطف. اجعل الشرح مناسبًا للصوت: جمل قصيرة، خطوة خطوة، مع مثال محسوس وأسئلة بسيطة عند الحاجة. إذا كان الصف من الأول إلى الثالث فاستخدم مفردات طفولية مشجعة، وفكرة واحدة في كل خطوة، وعدًّا محسوسًا باستخدام تفاحات أو أقلام أو مكعبات، ثم اطلب من الطفل تجربة سؤال صغير. لا تكتفِ بإعادة صياغة الكتاب أو قراءته. للرياضيات اكتب خطوات الحل بالأرقام بوضوح وبيّن ماذا أضفنا أو أزلنا. للصفوف الرابع إلى السادس اشرح المصطلحات ثم أعط مثالًا وتدريبًا متدرجًا. لا تدّعِ أنك عرضت صورة أو حركة فعلية إذا لم تكن قد عُرضت في الواجهة.\nالكتاب: ${curriculum.book.title} | الصف: ${curriculum.book.grade||'غير محدد'} | المادة: ${curriculum.book.subject||'غير محددة'}.\nمقتطف نص الكتاب:\n${curriculum.excerpt}\n\nوصف العناصر البصرية التعليمية من صفحات الكتاب (إن توفر):\n${curriculum.visualContext||'لم يتوفر تحليل بصري لهذا الكتاب بعد. لا تدّع أنك رأيت رسومات غير موصوفة.'}\nإذا كان الوصف البصري متاحًا، اشرح الرسم أو الجدول أو التجربة بلغة مناسبة للطالب، واذكر رقم الصفحة. لا تخترع تفاصيل غير موجودة في الوصف.`:'';
   const messages=[{role:'system',content:systemPrompt+groundedRules}];
   for(const item of history.slice(-6)) if(item && ['user','assistant'].includes(item.role) && typeof item.content==='string') messages.push({role:item.role,content:item.content.slice(0,1500)});
   messages.push({role:'user',content:question.slice(0,2000)});
   const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),25000);
   try{
-    const r=await fetch(base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model,messages,temperature:0.55,max_tokens:700}),signal:controller.signal});
-    const payload=await r.json().catch(()=>({}));
-    if(!r.ok){console.error('AI provider returned status',r.status);throw new Error('تعذّر الوصول إلى المعلّم الذكي الآن. حاول بعد قليل.');}
-    const answer=payload.choices?.[0]?.message?.content;
-    if(typeof answer!=='string'||!answer.trim()) throw new Error('وصل رد غير مكتمل. حاول مرة أخرى.');
-    return {configured:true,answer:answer.trim().slice(0,5000)};
+    let answer='';
+    if(aiProvider()==='gemini'){
+      const system=messages.find(m=>m.role==='system')?.content||systemPrompt;
+      const contents=messages.filter(m=>m.role!=='system').map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]}));
+      answer=await generateGeminiContent({model,contents,systemInstruction:system,generationConfig:{temperature:0.55,maxOutputTokens:700}});
+    }else{
+      const r=await fetch(base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model,messages,temperature:0.55,max_tokens:700}),signal:controller.signal});
+      const payload=await r.json().catch(()=>({}));
+      if(!r.ok){console.error('AI provider returned status',r.status);throw new Error('تعذّر الوصول إلى المعلّم الذكي الآن. حاول بعد قليل.');}
+      const content=payload.choices?.[0]?.message?.content;answer=typeof content==='string'?content.trim():'';
+    }
+    if(!answer) throw new Error('وصل رد غير مكتمل. حاول مرة أخرى.');
+    return {configured:true,answer:answer.slice(0,5000)};
   }catch(e){if(e.name==='AbortError')throw new Error('تأخر الرد. حاول مرة أخرى.');throw e;}finally{clearTimeout(timer);}
 }
 function normalizeCurriculumText(value){
@@ -549,11 +575,10 @@ const server = http.createServer(async (req,res)=>{
       if(!lesson) return send(res,404,{error:'الدرس المرتبط بالمنهج غير موجود.'});
       if(String(lesson.content||'').trim().length<80) return send(res,422,{error:'محتوى الدرس قصير جدًا. أكمل الشرح وراجعه أولًا.'});
       if(!process.env.AI_API_KEY) return send(res,503,{error:'اقتراح الأسئلة الذكي يحتاج تفعيل خدمة الذكاء الاصطناعي في إعدادات الخادم (AI_API_KEY). يمكنك مراجعة الدرس أولًا ثم المحاولة بعد التفعيل.'});
-      const base=(process.env.AI_BASE_URL||'https://api.openai.com/v1').replace(/\/$/,''); const model=process.env.AI_MODEL||'gpt-4o-mini';
+      const base=(process.env.AI_BASE_URL||'https://api.openai.com/v1').replace(/\/$/,''); const model=process.env.AI_MODEL||(aiProvider()==='gemini'?'gemini-2.5-flash':'gpt-4o-mini');
       const prompt='أنت مساعد لإعداد اختبارات تعليمية للأطفال. أنشئ 3 أسئلة اختيار من متعدد باللغة العربية السهلة اعتمادًا حصريًا على نص الدرس أدناه. لكل سؤال 3 خيارات قصيرة، وإجابة صحيحة واحدة. لا تضف معلومات غير مذكورة في النص. أخرج JSON فقط بالشكل {"questions":[{"question":"...","answers":["...","...","..."],"correct":0}]} حيث correct فهرس الإجابة الصحيحة يبدأ من صفر. اجعل الأسئلة متنوعة ومناسبة لعمر الطفل. إذا لم يكف النص، أنشئ أسئلة مما ورد فقط. عنوان الدرس: '+lesson.title+'\nنص الدرس:\n'+String(lesson.content).slice(0,9000);
       const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),25000);
-      let payload; try { const r=await fetch(base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+process.env.AI_API_KEY},body:JSON.stringify({model,messages:[{role:'system',content:'أخرج JSON صالحًا فقط دون markdown أو شرح إضافي.'},{role:'user',content:prompt}],temperature:0.2,max_tokens:900}),signal:controller.signal}); payload=await r.json().catch(()=>({})); if(!r.ok) throw Error('تعذّر الاتصال بخدمة الذكاء الاصطناعي. حاول لاحقًا.'); } finally {clearTimeout(timer)}
-      let raw=payload.choices?.[0]?.message?.content; if(typeof raw!=='string') throw Error('لم تصل أسئلة قابلة للقراءة. حاول مرة أخرى.'); raw=raw.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''); const parsed=JSON.parse(raw); const qs=(Array.isArray(parsed.questions)?parsed.questions:[]).slice(0,5).map(q=>({id:'q-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,6),question:String(q.question||'').trim().slice(0,500),answers:(Array.isArray(q.answers)?q.answers:[]).slice(0,3).map(a=>String(a).slice(0,250)),correct:Number(q.correct),status:'draft',reviewRequired:true})).filter(q=>q.question&&q.answers.length===3&&q.answers.every(Boolean)&&Number.isInteger(q.correct)&&q.correct>=0&&q.correct<3);
+      let raw=''; try { if(aiProvider()==='gemini'){raw=await generateGeminiContent({model,contents:[{role:'user',parts:[{text:prompt}]}],systemInstruction:'أخرج JSON صالحًا فقط دون markdown أو شرح إضافي.',generationConfig:{temperature:0.2,maxOutputTokens:900}});}else{const r=await fetch(base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+process.env.AI_API_KEY},body:JSON.stringify({model,messages:[{role:'system',content:'أخرج JSON صالحًا فقط دون markdown أو شرح إضافي.'},{role:'user',content:prompt}],temperature:0.2,max_tokens:900}),signal:controller.signal});const payload=await r.json().catch(()=>({}));if(!r.ok)throw Error('تعذّر الاتصال بخدمة الذكاء الاصطناعي. حاول لاحقًا.');raw=payload.choices?.[0]?.message?.content||'';}} finally {clearTimeout(timer)} if(typeof raw!=='string') throw Error('لم تصل أسئلة قابلة للقراءة. حاول مرة أخرى.'); raw=raw.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''); const parsed=JSON.parse(raw); const qs=(Array.isArray(parsed.questions)?parsed.questions:[]).slice(0,5).map(q=>({id:'q-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,6),question:String(q.question||'').trim().slice(0,500),answers:(Array.isArray(q.answers)?q.answers:[]).slice(0,3).map(a=>String(a).slice(0,250)),correct:Number(q.correct),status:'draft',reviewRequired:true})).filter(q=>q.question&&q.answers.length===3&&q.answers.every(Boolean)&&Number.isInteger(q.correct)&&q.correct>=0&&q.correct<3);
       if(!qs.length) throw Error('لم تنتج الخدمة أسئلة صالحة. أعد المحاولة أو راجع محتوى الدرس.'); lesson.quizQuestions=qs; lesson.quizGeneratedAt=new Date().toISOString(); lesson.quizStatus='draft'; fs.writeFileSync(dataFile,JSON.stringify(db,null,2)); return send(res,200,{lessonId:id,questions:qs,reviewRequired:true,message:'تم اقتراح الأسئلة كمسودة فقط. راجع صياغة كل سؤال والإجابة الصحيحة قبل اعتمادها.'});
     }catch(e){return send(res,e.status||422,{error:e.name==='AbortError'?'تأخر توليد الأسئلة. حاول مرة أخرى.':e.message||'تعذّر توليد الأسئلة.'});}
   }
@@ -641,7 +666,7 @@ const server = http.createServer(async (req,res)=>{
     let languageList=[];if(tesseract.available){try{const r=await execFileAsync('tesseract',['--list-langs'],{timeout:5000,maxBuffer:200000});languageList=String(r.stdout||r.stderr).split(/\r?\n/).map(x=>x.trim()).filter(x=>x&&x!=='List of available languages:')}catch{}}
     return send(res,200,{pdfParser:{available:typeof pdfParse==='function',required:true},ocr:{available:poppler.available&&tesseract.available&&languageList.includes('ara')&&languageList.includes('eng'),poppler,tesseract,arabic:languageList.includes('ara'),english:languageList.includes('eng'),languages:languageList},storage:{dataDir,configured:!!process.env.DATA_DIR}});
   }
-  if(req.method==='GET' && pathname==='/api/teacher/status') return send(res,200,{configured:Boolean(process.env.AI_API_KEY),model:process.env.AI_MODEL||'gpt-4o-mini'});
+  if(req.method==='GET' && pathname==='/api/teacher/status') return send(res,200,{configured:Boolean(process.env.AI_API_KEY),model:process.env.AI_MODEL||(aiProvider()==='gemini'?'gemini-2.5-flash':'gpt-4o-mini')});
   if(req.method==='POST' && pathname==='/api/teacher/ask'){
     try{const body=await readBody(req,12000);const question=String(body.question||'').trim();if(!question)return send(res,400,{error:'اكتب سؤالك أولًا.'});if(question.length>2000)return send(res,413,{error:'اختصر السؤال قليلًا ثم أرسله.'});const bookId=String(body.bookId||'').trim();if(!bookId)return send(res,400,{error:'اختر كتابًا من مكتبة المناهج حتى تكون الإجابة مستندة إلى محتوى الكتاب.'});const curriculum=curriculumContext(question,bookId);if(!curriculum)return send(res,404,{error:'لم نجد نصًا مستخرجًا لهذا الكتاب. تأكد من رفعه ونجاح قراءة PDF أولًا.'});if(!curriculum.matched){let answer=curriculum.reason==='page-index-unavailable'?'الكتاب موجود، لكن النص المستخرج لا يحفظ أرقام الصفحات بدقة. افتح ملف PDF وحدد عنوان الدرس أو انسخ فقرة منه حتى لا أشرح صفحة خاطئة.':curriculum.reason==='text-quality-low'?'تم العثور على الكتاب، لكن النص المستخرج منه غير واضح أو غير مرتب بما يكفي لشرح موثوق. أعد رفع PDF بجودة أوضح، وإذا كان مصوّرًا فتأكد من تفعيل OCR العربي على الخادم.':curriculum.reason==='topic-not-found'?'لم أجد في النص المستخرج فقرة مرتبطة بهذا الطلب بدرجة كافية، لذلك لن أختار نصًا عشوائيًا من الكتاب. اكتب عنوان الدرس أو اطلب ملخصًا عامًا للكتاب.':'لم أتمكن من تحديد هذا الدرس داخل النص المستخرج من الكتاب. جرّب كتابة عنوان الدرس أو أعد رفع نسخة أوضح من PDF.';return send(res,200,{configured:Boolean(process.env.AI_API_KEY),grounded:true,matched:false,reason:curriculum.reason||'not-matched',bookTitle:curriculum.book.title,answer});}const quality=curriculumTextQuality(curriculum.excerpt);curriculum.visualContext=curriculum.visualContext||visualContextForQuestion(curriculum.book,question,curriculum.excerpt);if(!quality.ok&&!(curriculum.visualOnly&&curriculum.visualContext))return send(res,200,{configured:Boolean(process.env.AI_API_KEY),grounded:true,matched:false,reason:'text-quality-low',bookTitle:curriculum.book.title,answer:'تم العثور على الكتاب، لكن النص المستخرج من صفحاته غير واضح أو مختلط بعناصر أخرى، ولا تتوفر أوصاف بصرية مرتبطة بسؤالك. أعد رفع نسخة PDF أوضح أو حدد عنوان الدرس بدقة، وتأكد من تفعيل OCR باللغة العربية إذا كان الكتاب مصوّرًا.'});const result=await teacherAnswer(question,Array.isArray(body.history)?body.history:[],curriculum);return send(res,200,{...result,grounded:true,matched:true,bookTitle:curriculum.book.title,visualPagesAvailable:Array.isArray(curriculum.book.visualPages)?curriculum.book.visualPages.length:0,visualContextIncluded:Boolean(curriculum.visualContext)});}catch(e){return send(res,e.status||502,{error:e.message||'تعذّر الحصول على إجابة الآن.'});}
   }
