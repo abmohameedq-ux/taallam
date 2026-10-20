@@ -103,6 +103,7 @@ const more = [
   ['learn screen always lists books by subject and filters by grade', sJs.includes('h3') && sJs.includes('sameGrade') && sJs.includes('عرض كتب كل الصفوف') && !sJs.includes('books.length === 1 ||')],
   ['platform cloud voice backs up the device voice', sJs.includes('function speakCloud') && sJs.includes('/api/learn/speak') && sJs.includes('P.deviceBad') && server.includes("handleSpeak(res,body)") && server.includes('/audio/speech')],
   ['voice settings include a self-test with a diagnostic report', sJs.includes('جرّب الصوت') && sJs.includes('function voiceReport')],
+  ['Gemini keys are detected automatically and their raw PCM audio is wrapped as WAV', server.includes('generativelanguage') && server.includes('function pcmToWav') && server.includes('responseModalities')],
   ['explanations are teacher-style and end with the original book text', server.includes('لا تقرأ النص كما هو') && server.includes('نص الكتاب:') && sJs.includes("classList.toggle('src'")],
 ];
 for (const [label, ok] of more) checks.push([label, Boolean(ok)]);

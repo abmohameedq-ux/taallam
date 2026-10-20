@@ -238,26 +238,51 @@ function splitSlides(answer,stage){
 const plainSlides=list=>list.map(s=>({t:s,src:false}));
 const ttsCache=new Map(); let ttsDay={d:'',n:0};
 function ttsConfigured(){return process.env.TTS_ENABLED!=='0'&&Boolean(process.env.TTS_API_KEY||process.env.AI_API_KEY);}
+function ttsProvider(){
+  const forced=String(process.env.TTS_PROVIDER||'').toLowerCase(); if(forced==='gemini'||forced==='openai')return forced;
+  return /generativelanguage\.googleapis\.com/.test((process.env.TTS_BASE_URL||'')+(process.env.AI_BASE_URL||''))?'gemini':'openai';
+}
+// Gemini returns raw 16-bit mono PCM (base64); browsers need a WAV container to play it.
+function pcmToWav(pcm,rate){
+  const h=Buffer.alloc(44); h.write('RIFF',0); h.writeUInt32LE(36+pcm.length,4); h.write('WAVEfmt ',8); h.writeUInt32LE(16,16); h.writeUInt16LE(1,20); h.writeUInt16LE(1,22);
+  h.writeUInt32LE(rate,24); h.writeUInt32LE(rate*2,28); h.writeUInt16LE(2,32); h.writeUInt16LE(16,34); h.write('data',36); h.writeUInt32LE(pcm.length,40);
+  return Buffer.concat([h,pcm]);
+}
+async function synthesize(text,signal){
+  const key=process.env.TTS_API_KEY||process.env.AI_API_KEY;
+  if(ttsProvider()==='gemini'){
+    const model=process.env.TTS_MODEL||'gemini-2.5-flash-preview-tts',voice=process.env.TTS_VOICE||'Kore';
+    const base=(process.env.TTS_BASE_URL||'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/,'');
+    const r=await fetch(base+'/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},signal,
+      body:JSON.stringify({contents:[{parts:[{text}]}],generationConfig:{responseModalities:['AUDIO'],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:voice}}}}})});
+    if(!r.ok){console.error('TTS (gemini) provider status',r.status);return null;}
+    const j=await r.json().catch(()=>null); const part=j?.candidates?.[0]?.content?.parts?.find(x=>x.inlineData?.data);
+    if(!part){console.error('TTS (gemini) returned no audio');return null;}
+    const rate=Number((/rate=(\d+)/.exec(part.inlineData.mimeType||'')||[])[1])||24000;
+    return {buf:pcmToWav(Buffer.from(part.inlineData.data,'base64'),rate),type:'audio/wav',id:'gemini|'+model+'|'+voice};
+  }
+  const model=process.env.TTS_MODEL||'tts-1',voice=process.env.TTS_VOICE||'alloy';
+  const base=(process.env.TTS_BASE_URL||process.env.AI_BASE_URL||'https://api.openai.com/v1').replace(/\/$/,'');
+  const r=await fetch(base+'/audio/speech',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model,voice,input:text,response_format:'mp3'}),signal});
+  if(!r.ok){console.error('TTS provider status',r.status);return null;}
+  return {buf:Buffer.from(await r.arrayBuffer()),type:r.headers.get('content-type')||'audio/mpeg',id:'openai|'+model+'|'+voice};
+}
 async function handleSpeak(res,body){
   if(!ttsConfigured())return send(res,503,{error:'الصوت السحابي غير مفعّل على الخادم.'});
   const text=learn.cleanForSpeech(String(body.text||'')).slice(0,800);
   if(text.length<2)return send(res,400,{error:'لا يوجد نص للقراءة.'});
-  const model=process.env.TTS_MODEL||'tts-1',voice=process.env.TTS_VOICE||'alloy';
-  const key=crypto.createHash('sha1').update(model+'|'+voice+'|'+text).digest('hex');
+  const key=crypto.createHash('sha1').update(ttsProvider()+'|'+(process.env.TTS_MODEL||'')+'|'+(process.env.TTS_VOICE||'')+'|'+text).digest('hex');
   const hit=ttsCache.get(key);
   if(hit){ttsCache.delete(key);ttsCache.set(key,hit);return send(res,200,hit.buf,hit.type);}
   const day=new Date().toISOString().slice(0,10); if(ttsDay.d!==day)ttsDay={d:day,n:0};
   if(ttsDay.n+text.length>Number(process.env.TTS_DAILY_CHARS||400000))return send(res,429,{error:'وصل الصوت السحابي إلى حدّه اليومي.'});
   ttsDay.n+=text.length;
-  const base=(process.env.TTS_BASE_URL||process.env.AI_BASE_URL||'https://api.openai.com/v1').replace(/\/$/,'');
-  const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),25000);
+  const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),30000);
   try{
-    const r=await fetch(base+'/audio/speech',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+(process.env.TTS_API_KEY||process.env.AI_API_KEY)},body:JSON.stringify({model,voice,input:text,response_format:'mp3'}),signal:controller.signal});
-    if(!r.ok){console.error('TTS provider status',r.status);return send(res,502,{error:'تعذّر توليد الصوت الآن.'});}
-    const buf=Buffer.from(await r.arrayBuffer()); if(buf.length<100)return send(res,502,{error:'وصل صوت غير مكتمل.'});
-    const type=r.headers.get('content-type')||'audio/mpeg';
-    ttsCache.set(key,{buf,type}); if(ttsCache.size>300)ttsCache.delete(ttsCache.keys().next().value);
-    return send(res,200,buf,type);
+    const out=await synthesize(text,controller.signal);
+    if(!out||out.buf.length<100)return send(res,502,{error:'تعذّر توليد الصوت الآن.'});
+    ttsCache.set(key,out); if(ttsCache.size>300)ttsCache.delete(ttsCache.keys().next().value);
+    return send(res,200,out.buf,out.type);
   }catch(e){return send(res,502,{error:e.name==='AbortError'?'تأخر توليد الصوت.':'تعذّر توليد الصوت الآن.'});}finally{clearTimeout(timer);}
 }
 async function handleLearn(req,res,pathname){

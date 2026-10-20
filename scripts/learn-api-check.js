@@ -14,9 +14,10 @@ function request(port, urlPath, opts = {}) {
   });
 }
 function startMockAI() {
-  const seen = []; let speechCalls = 0;
+  const seen = []; let speechCalls = 0, geminiCalls = 0;
   const srv = http.createServer((req, res) => {
     let b = ''; req.on('data', d => b += d); req.on('end', () => {
+      if (req.url.includes(':generateContent')) { geminiCalls++; res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;codec=pcm;rate=24000', data: Buffer.alloc(4800, 3).toString('base64') } }] } }] })); }
       if (req.url.endsWith('/audio/speech')) { speechCalls++; res.setHeader('Content-Type', 'audio/mpeg'); return res.end(Buffer.alloc(2048, 7)); }
       const body = JSON.parse(b || '{}'); const user = body.messages.map(m => m.content).join('\n'); seen.push(user);
       let content;
@@ -28,7 +29,7 @@ function startMockAI() {
       res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ choices: [{ message: { content } }] }));
     });
   });
-  return new Promise(r => srv.listen(0, '127.0.0.1', () => r({ srv, port: srv.address().port, seen, calls: () => speechCalls })));
+  return new Promise(r => srv.listen(0, '127.0.0.1', () => r({ srv, port: srv.address().port, seen, calls: () => speechCalls, gemini: () => geminiCalls })));
 }
 async function startServer(extraEnv) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'taallam-learn-'));
@@ -45,7 +46,7 @@ async function startServer(extraEnv) {
   throw new Error('server not ready: ' + out);
 }
 (async () => {
-  const checks = []; const mock = await startMockAI(); let withAI, noAI;
+  const checks = []; const mock = await startMockAI(); let withAI, noAI, gem;
   try {
     withAI = await startServer({ AI_API_KEY: 'test-key', AI_BASE_URL: 'http://127.0.0.1:' + mock.port });
     const P = withAI.port;
@@ -68,6 +69,10 @@ async function startServer(extraEnv) {
     const sp2 = await request(P, '/api/learn/speak', { method: 'POST', body: { text: 'مرحبًا بك يا صديقي' } });
     checks.push(['cloud voice returns audio and caches repeated text', sp1.status === 200 && sp1.body.length > 100 && sp2.status === 200 && mock.calls() === 1]);
     const sp3 = await request(P, '/api/learn/speak', { method: 'POST', body: { text: ' ' } }); checks.push(['cloud voice rejects empty text', sp3.status === 400]);
+    gem = await startServer({ AI_API_KEY: 'gem-key', AI_BASE_URL: 'http://127.0.0.1:' + mock.port + '/v1beta/openai/', TTS_BASE_URL: 'http://127.0.0.1:' + mock.port + '/v1beta', TTS_PROVIDER: 'gemini' });
+    const g1 = await request(gem.port, '/api/learn/speak', { method: 'POST', body: { text: 'مرحبًا بك يا صديقي' } });
+    checks.push(['Gemini voice: raw PCM is wrapped as a playable WAV (RIFF, 24 kHz, 16-bit mono)', g1.status === 200 && g1.body.startsWith('RIFF') && mock.gemini() === 1]);
+    await request(gem.port, '/api/learn/speak', { method: 'POST', body: { text: 'مرحبًا بك يا صديقي' } }); checks.push(['Gemini voice is cached after the first call', mock.gemini() === 1]);
     noAI = await startServer({});
     const spn = await request(noAI.port, '/api/learn/speak', { method: 'POST', body: { text: 'مرحبا' } }); checks.push(['cloud voice is cleanly unavailable without a key', spn.status === 503 && (await request(noAI.port, '/api/learn/status')).json.tts === false]);
     const f1 = await request(noAI.port, '/api/learn/teach', { method: 'POST', body: { bookId: 'book1', sectionId: 'l2', mode: 'explain' } });
@@ -77,7 +82,7 @@ async function startServer(extraEnv) {
     const f3 = await request(noAI.port, '/api/learn/grade', { method: 'POST', body: { q: 'ما الصدق؟', model: 'قول الحقيقة وعدم خداع الآخرين', answer: 'قول الحقيقة وعدم الخداع' } });
     checks.push(['without AI key: keyword grading works', f3.json?.score >= 1 && f3.json.approximate === true]);
   } catch (e) { console.error(e); checks.push(['no exception', false]); }
-  finally { withAI?.child.kill(); noAI?.child.kill(); mock.srv.close(); }
+  finally { withAI?.child.kill(); noAI?.child.kill(); gem?.child.kill(); mock.srv.close(); }
   let failed = 0; for (const [n, ok] of checks) { console.log((ok ? 'PASS ' : 'FAIL ') + n); if (!ok) failed++; }
   console.log(`\n${checks.length - failed}/${checks.length} learn API checks passed.`); process.exit(failed ? 1 : 0);
 })();
