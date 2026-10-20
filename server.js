@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execFile } = require('child_process');
+const learn = require('./lib/learn.js');
 const execFileAsync = promisify(execFile);
 const root = __dirname;
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, 'data');
@@ -38,7 +39,6 @@ const schoolMembersFile = path.join(dataDir, 'school-members.json');
 const schoolMemberSessionsFile = path.join(dataDir, 'school-member-sessions.json');
 const schoolSubmissionsFile = path.join(dataDir, 'school-submissions.json');
 const guardianLinksFile = path.join(dataDir, 'guardian-links.json');
-const learningProgressFile = path.join(dataDir, 'learning-progress.json');
 const schoolArchivesFile = path.join(dataDir, 'school-archives.json');
 const settingsFile = path.join(dataDir, 'platform-settings.json');
 const auditFile = path.join(dataDir, 'audit-log.json');
@@ -47,11 +47,12 @@ const teacherSessions = new Map();
 const schoolSessions = new Map();
 const schoolMemberSessions = new Map();
 function loadTeacherSessions(){try{for(const [token,session] of JSON.parse(fs.readFileSync(teacherSessionsFile,'utf8')))if(session&&session.expires>Date.now())teacherSessions.set(token,session);}catch{}}
-function saveTeacherSessions(){fs.writeFileSync(teacherSessionsFile,JSON.stringify([...teacherSessions.entries()]),{mode:0o600});}
+function saveTeacherSessions(){writeFileAtomic(teacherSessionsFile,JSON.stringify([...teacherSessions.entries()]),{mode:0o600});}
 function sessionTeacher(req){const raw=String(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('taallam_teacher='));const token=raw?raw.slice('taallam_teacher='.length):'';const session=teacherSessions.get(token);if(!session||session.expires<Date.now()){if(token)teacherSessions.delete(token);return null;}return {token,...session};}
 function teacherCookie(res,token,maxAge){res.setHeader('Set-Cookie',`taallam_teacher=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${process.env.NODE_ENV==='production'?'; Secure':''}`);}
 function readJsonFile(file,fallback){try{return JSON.parse(fs.readFileSync(file,'utf8'));}catch{return fallback;}}
-function saveJsonFile(file,data){fs.writeFileSync(file,JSON.stringify(data,null,2),{mode:0o600});}
+function writeFileAtomic(file,data,opts){const tmp=file+'.'+process.pid+'.tmp';fs.writeFileSync(tmp,data,opts);fs.renameSync(tmp,file);}
+function saveJsonFile(file,data){writeFileAtomic(file,JSON.stringify(data,null,2),{mode:0o600});}
 function readSchools(){const d=readJsonFile(schoolsFile,{schools:[]});return {schools:Array.isArray(d.schools)?d.schools:[]};}
 function readSchoolPosts(){const d=readJsonFile(schoolPostsFile,{posts:[]});return {posts:Array.isArray(d.posts)?d.posts:[]};}
 function readSchoolMembers(){const d=readJsonFile(schoolMembersFile,{members:[]});return {members:Array.isArray(d.members)?d.members:[]};}
@@ -69,14 +70,14 @@ function saveSchoolSessions(){saveJsonFile(schoolSessionsFile,[...schoolSessions
 function schoolAdminCookie(res,token,maxAge){res.setHeader('Set-Cookie',`taallam_school_admin=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${process.env.NODE_ENV==='production'?'; Secure':''}`);}
 function requireSchoolAdmin(req,res){const ss=sessionSchoolAdmin(req);if(!ss){send(res,401,{error:'سجّل الدخول بحساب إدارة المدرسة أولًا.'});return null;}return ss;}
 function publicSchool(s){const accounts=Array.isArray(s.admins)?s.admins:[];const principal=accounts.find(a=>(a.schoolRole||'principal')==='principal'&&a.active);const deputy=accounts.find(a=>a.schoolRole==='deputy'&&a.active);return {id:s.id,name:s.name,slug:s.slug||'',description:s.description||'',logoUrl:s.logoUrl||'',contactEmail:s.contactEmail||'',phone:s.phone||'',active:!!s.active,createdAt:s.createdAt,schoolYear:s.schoolYear||'',grades:s.grades||[],subjects:s.subjects||[],sections:s.sections||[],gradeSections:s.gradeSections||{},principal:principal?{name:principal.name,email:principal.email}:null,deputy:deputy?{name:deputy.name,email:deputy.email}:null};}
-function audit(actor,action,details={}){try{let rows=[];try{rows=JSON.parse(fs.readFileSync(auditFile,'utf8'));}catch{}rows.unshift({at:new Date().toISOString(),actor:String(actor||'system').slice(0,254),action:String(action).slice(0,100),details:Object.fromEntries(Object.entries(details).slice(0,10).map(([k,v])=>[String(k).slice(0,50),String(v).slice(0,180)]))});fs.writeFileSync(auditFile,JSON.stringify(rows.slice(0,2000),null,2),{mode:0o600});}catch(e){console.error('Audit log write failed:',e.message);}}
+function audit(actor,action,details={}){try{let rows=[];try{rows=JSON.parse(fs.readFileSync(auditFile,'utf8'));}catch{}rows.unshift({at:new Date().toISOString(),actor:String(actor||'system').slice(0,254),action:String(action).slice(0,100),details:Object.fromEntries(Object.entries(details).slice(0,10).map(([k,v])=>[String(k).slice(0,50),String(v).slice(0,180)]))});writeFileAtomic(auditFile,JSON.stringify(rows.slice(0,2000),null,2),{mode:0o600});}catch(e){console.error('Audit log write failed:',e.message);}}
 function readTeachers(){try{const d=JSON.parse(fs.readFileSync(teachersFile,'utf8'));return Array.isArray(d.teachers)?d:{teachers:[]};}catch{return {teachers:[]};}}
-function saveTeachers(d){fs.writeFileSync(teachersFile,JSON.stringify(d,null,2),{mode:0o600});}
+function saveTeachers(d){writeFileAtomic(teachersFile,JSON.stringify(d,null,2),{mode:0o600});}
 function requireTeacher(req,res){const t=sessionTeacher(req);if(!t){send(res,401,{error:'سجّل الدخول بحساب المعلّم أولًا.'});return null;}return t;}
 function loadAdminSessions(){try{for(const [token,session] of JSON.parse(fs.readFileSync(adminSessionsFile,'utf8')))if(session&&session.expires>Date.now())adminSessions.set(token,session);}catch{}}
-function saveAdminSessions(){try{fs.writeFileSync(adminSessionsFile,JSON.stringify([...adminSessions.entries()]),{mode:0o600});}catch(e){console.error('Could not persist admin sessions:',e.message);}}
+function saveAdminSessions(){try{writeFileAtomic(adminSessionsFile,JSON.stringify([...adminSessions.entries()]),{mode:0o600});}catch(e){console.error('Could not persist admin sessions:',e.message);}}
 function readAdmins(){try{const d=JSON.parse(fs.readFileSync(adminsFile,'utf8'));return Array.isArray(d.admins)?d:{admins:[]};}catch{return {admins:[]};}}
-function saveAdmins(d){fs.writeFileSync(adminsFile,JSON.stringify(d,null,2),{mode:0o600});}
+function saveAdmins(d){writeFileAtomic(adminsFile,JSON.stringify(d,null,2),{mode:0o600});}
 function sessionAdmin(req){const raw=String(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('taallam_admin='));const token=raw?raw.slice('taallam_admin='.length):'';const session=adminSessions.get(token);if(!session||session.expires<Date.now()){if(token)adminSessions.delete(token);return null;}if(session.role!=='superadmin'){const a=readAdmins().admins.find(x=>x.id===session.adminId&&x.active);if(!a){adminSessions.delete(token);saveAdminSessions();return null;}}return {token,...session};}
 function adminCookie(res,token,maxAge){res.setHeader('Set-Cookie',`taallam_admin=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${process.env.NODE_ENV==='production'?'; Secure':''}`);}
 function requireAdmin(req,res){if(!sessionAdmin(req)){send(res,401,{error:'تسجيل دخول مدير المنصة مطلوب لإدارة المناهج والمحتوى.'});return false;}return true;}
@@ -86,15 +87,17 @@ const RATE_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_LIMIT = 8;
 const REGISTER_LIMIT = 5;
 function loadSessions(){try{const rows=JSON.parse(fs.readFileSync(sessionsFile,'utf8'));for(const [token,session] of rows)if(session&&session.expires>Date.now())parentSessions.set(token,session);}catch{}}
-function saveSessions(){try{fs.writeFileSync(sessionsFile,JSON.stringify([...parentSessions.entries()]),{mode:0o600});}catch(e){console.error('Could not persist sessions:',e.message);}}
-function rateLimit(req,key,limit){const now=Date.now();const ip=String(req.socket.remoteAddress||'unknown');const id=key+':'+ip;let bucket=rateBuckets.get(id);if(!bucket||bucket.until<=now)bucket={count:0,until:now+RATE_WINDOW_MS};bucket.count++;rateBuckets.set(id,bucket);if(rateBuckets.size>5000){for(const [k,v] of rateBuckets)if(v.until<=now)rateBuckets.delete(k);}return {allowed:bucket.count<=limit, retryAfter:Math.max(1,Math.ceil((bucket.until-now)/1000))};}
+function saveSessions(){try{writeFileAtomic(sessionsFile,JSON.stringify([...parentSessions.entries()]),{mode:0o600});}catch(e){console.error('Could not persist sessions:',e.message);}}
+const TRUST_PROXY_HOPS=Math.max(0,Number.parseInt(process.env.TRUST_PROXY_HOPS??((process.env.RAILWAY_ENVIRONMENT||process.env.RAILWAY_PROJECT_ID)?'1':'0'),10)||0);
+function clientIp(req){const direct=String(req.socket.remoteAddress||'unknown');if(!TRUST_PROXY_HOPS)return direct;const xff=String(req.headers['x-forwarded-for']||'').split(',').map(s=>s.trim()).filter(Boolean);if(!xff.length)return direct;return xff[Math.max(0,xff.length-TRUST_PROXY_HOPS)]||direct;}
+function rateLimit(req,key,limit){const now=Date.now();const ip=clientIp(req);const id=key+':'+ip;let bucket=rateBuckets.get(id);if(!bucket||bucket.until<=now)bucket={count:0,until:now+RATE_WINDOW_MS};bucket.count++;rateBuckets.set(id,bucket);if(rateBuckets.size>5000){for(const [k,v] of rateBuckets)if(v.until<=now)rateBuckets.delete(k);}return {allowed:bucket.count<=limit, retryAfter:Math.max(1,Math.ceil((bucket.until-now)/1000))};}
 function sameOrigin(req){const origin=req.headers.origin;if(!origin)return true;try{return new URL(origin).host===String(req.headers.host||'');}catch{return false;}}
 loadSessions();
 loadAdminSessions();
 loadTeacherSessions();
-if(!fs.existsSync(teachersFile))fs.writeFileSync(teachersFile,JSON.stringify({teachers:[]},null,2),{mode:0o600});
-if(!fs.existsSync(adminsFile))fs.writeFileSync(adminsFile,JSON.stringify({admins:[]},null,2),{mode:0o600});
-if(!fs.existsSync(auditFile))fs.writeFileSync(auditFile,'[]',{mode:0o600});
+if(!fs.existsSync(teachersFile))writeFileAtomic(teachersFile,JSON.stringify({teachers:[]},null,2),{mode:0o600});
+if(!fs.existsSync(adminsFile))writeFileAtomic(adminsFile,JSON.stringify({admins:[]},null,2),{mode:0o600});
+if(!fs.existsSync(auditFile))writeFileAtomic(auditFile,'[]',{mode:0o600});
 if(!fs.existsSync(schoolsFile))saveJsonFile(schoolsFile,{schools:[]});
 if(!fs.existsSync(schoolPostsFile))saveJsonFile(schoolPostsFile,{posts:[]});
 if(!fs.existsSync(schoolMembersFile))saveJsonFile(schoolMembersFile,{members:[]});
@@ -102,14 +105,14 @@ if(!fs.existsSync(schoolArchivesFile))saveJsonFile(schoolArchivesFile,{archives:
 try{for(const [token,session] of readJsonFile(schoolMemberSessionsFile,[]))if(session&&session.expires>Date.now())schoolMemberSessions.set(token,session);}catch{}
 if(!fs.existsSync(settingsFile))saveJsonFile(settingsFile,readPlatformSettings());
 try{for(const [token,session] of readJsonFile(schoolSessionsFile,[]))if(session&&session.expires>Date.now())schoolSessions.set(token,session);}catch{}
-if (!fs.existsSync(accountsFile)) fs.writeFileSync(accountsFile, JSON.stringify({accounts:[]}, null, 2));
+if (!fs.existsSync(accountsFile)) writeFileAtomic(accountsFile, JSON.stringify({accounts:[]}, null, 2));
 function readAccounts(){try{const d=JSON.parse(fs.readFileSync(accountsFile,'utf8'));d.accounts ||= [];return d;}catch{return {accounts:[]};}}
-function saveAccounts(d){fs.writeFileSync(accountsFile,JSON.stringify(d,null,2),{mode:0o600});}
+function saveAccounts(d){writeFileAtomic(accountsFile,JSON.stringify(d,null,2),{mode:0o600});}
 function sessionParent(req){const raw=String(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('taallam_session='));const token=raw?raw.slice('taallam_session='.length):'';const session=parentSessions.get(token);if(!session||session.expires<Date.now()){if(token)parentSessions.delete(token);return null;}return {token,...session};}
 function cookie(res,token,maxAge){res.setHeader('Set-Cookie',`taallam_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${process.env.NODE_ENV==='production'?'; Secure':''}`);}
 
 fs.mkdirSync(dataDir, { recursive: true });
-if (!fs.existsSync(dataFile)) fs.writeFileSync(dataFile, JSON.stringify({ books: [], plans: [], lessons: [], units: [] }, null, 2));
+if (!fs.existsSync(dataFile)) writeFileAtomic(dataFile, JSON.stringify({ books: [], plans: [], lessons: [], units: [] }, null, 2));
 const types = { '.html':'text/html; charset=utf-8', '.css':'text/css; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.json':'application/json; charset=utf-8', '.webmanifest':'application/manifest+json; charset=utf-8', '.svg':'image/svg+xml' };
 function readData(){ try { const d=JSON.parse(fs.readFileSync(dataFile,'utf8')); d.books ||= []; d.plans ||= []; d.lessons ||= []; d.units ||= []; return d; } catch { return {books:[],plans:[],lessons:[],units:[]}; } }
 function send(res, status, body, type='application/json; charset=utf-8'){res.writeHead(status, {'Content-Type':type,'X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'strict-origin-when-cross-origin','Permissions-Policy':'camera=(), geolocation=(), payment=()','Cache-Control':'no-store','Cross-Origin-Resource-Policy':'same-origin'});if(Buffer.isBuffer(body)||typeof body==='string'){res.end(body);}else{res.end(JSON.stringify(body));}}
@@ -149,108 +152,6 @@ async function extractPdfContent(buffer) {
   return { parsed, text, ocrUsed, ocrPages, ocrPartial: ocrUsed && ocrPages < (Number(parsed.numpages) || ocrPages) };
 }
 
-function aiProvider(){return String(process.env.AI_PROVIDER||'openai-compatible').toLowerCase().trim();}
-async function generateGeminiContent({model,contents,systemInstruction='',generationConfig={}}){
-  const key=process.env.AI_API_KEY;if(!key)throw new Error('AI_API_KEY_MISSING');
-  const base=(process.env.GEMINI_API_BASE_URL||'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/,'');
-  const url=base+'/models/'+encodeURIComponent(model)+':generateContent?key='+encodeURIComponent(key);
-  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),60000);
-  try{
-    const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents,...(systemInstruction?{systemInstruction:{parts:[{text:systemInstruction}]}}:{}),generationConfig}),signal:controller.signal});
-    const payload=await response.json().catch(()=>({}));
-    if(!response.ok){console.error('Gemini provider returned status',response.status);throw new Error('GEMINI_PROVIDER_'+response.status);}
-    const answer=(payload.candidates?.[0]?.content?.parts||[]).map(part=>part.text||'').join('\n').trim();
-    if(!answer)throw new Error('GEMINI_EMPTY_RESPONSE');return answer;
-  }finally{clearTimeout(timer);}
-}
-function visualBookConfig(){
-  return {model:process.env.AI_VISION_MODEL||process.env.AI_MODEL||(aiProvider()==='gemini'?'gemini-2.5-flash':'gpt-4o-mini'),maxPages:0,batchSize:Math.max(1,Math.min(20,Number.parseInt(process.env.VISION_PAGE_BATCH_SIZE||'10',10)||10))};
-}
-function saveBookVisualProgress(bookId, update){
-  const db=readData(); const book=(db.books||[]).find(b=>b.id===bookId); if(!book)return false;
-  Object.assign(book,update); fs.writeFileSync(dataFile,JSON.stringify(db,null,2),{mode:0o600}); return true;
-}
-async function describeOneBookPage(imagePath, pageNumber){
-  const key=process.env.AI_API_KEY; if(!key)throw new Error('AI_API_KEY_MISSING');
-  const base=(process.env.AI_BASE_URL||'https://api.openai.com/v1').replace(/\/$/,'');
-  const model=visualBookConfig().model;
-  const imageData=fs.readFileSync(imagePath).toString('base64');
-  const prompt=`أنت مساعد متخصص في قراءة الكتب المدرسية العربية بصريًا. حلّل الصفحة رقم ${pageNumber} من كتاب مدرسي. صف بدقة أي رسوم توضيحية، مخططات، جداول، خرائط، أشكال هندسية، تجارب، خطوات مرسومة، أمثلة محلولة، صور تعليمية، محاور ورسوم بيانية، رموز أو تسميات ظاهرة. انسخ الكلمات والأرقام الظاهرة التي تساعد على فهم الرسم عند وضوحها. اذكر موضع الرسم أو الجدول وعلاقته بموضوع الصفحة إذا أمكن. إذا لم يوجد عنصر بصري تعليمي مهم، اكتب «لا يوجد عنصر بصري تعليمي بارز». لا تخمّن الأرقام أو التسميات غير الواضحة، وميّز بين ما تراه وما لا تستطيع قراءته. أجب بالعربية في فقرة منظمة وموجزة.`;
-  const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),60000);
-  try{
-    let description='';
-    if(aiProvider()==='gemini'){
-      description=await generateGeminiContent({model,contents:[{role:'user',parts:[{text:prompt},{inlineData:{mimeType:'image/jpeg',data:imageData}}]}],generationConfig:{temperature:0.1,maxOutputTokens:450}});
-    }else{
-      const response=await fetch(base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model,messages:[{role:'user',content:[{type:'text',text:prompt},{type:'image_url',image_url:{url:'data:image/jpeg;base64,'+imageData,detail:'high'}}]}],temperature:0.1,max_tokens:450}),signal:controller.signal});
-      const payload=await response.json().catch(()=>({}));
-      if(!response.ok)throw new Error('VISION_PROVIDER_'+response.status);
-      const content=payload.choices?.[0]?.message?.content;
-      description=typeof content==='string'?content.trim():Array.isArray(content)?content.map(x=>x.text||'').join('\n').trim():'';
-    }
-    if(!description)throw new Error('VISION_EMPTY_RESPONSE');
-    return description.slice(0,2200);
-  } finally {clearTimeout(timer);}
-}
-async function analyzeBookVisuals(bookId){
-  if(!process.env.AI_API_KEY){saveBookVisualProgress(bookId,{visualStatus:'unavailable',visualWarning:'تحليل الصور يحتاج تفعيل AI_API_KEY وخدمة تدعم الصور.',visualUpdatedAt:new Date().toISOString()});return;}
-  const initial=readData().books.find(b=>b.id===bookId); if(!initial||!initial.fileName)return;
-  const filePath=path.join(uploadDir,path.basename(initial.fileName));
-  if(!fs.existsSync(filePath)){saveBookVisualProgress(bookId,{visualStatus:'error',visualWarning:'ملف PDF غير موجود في التخزين الحالي؛ تحقق من إعداد DATA_DIR الدائم.',visualUpdatedAt:new Date().toISOString()});return;}
-  let totalPages=Math.max(1,Number(initial.pages)||0);
-  const tempDir=fs.mkdtempSync(path.join(os.tmpdir(),'taallam-visual-'));
-  try{
-    saveBookVisualProgress(bookId,{visualStatus:'processing',visualWarning:'',visualTotalPages:totalPages,visualStartedAt:new Date().toISOString()});
-    const cfg=visualBookConfig();
-    let existing=(readData().books.find(b=>b.id===bookId)?.visualPages)||[];
-    const byPage=new Map(existing.map(p=>[Number(p.pageNumber),p]));
-    for(let start=1;start<=totalPages;start+=cfg.batchSize){
-      const end=Math.min(totalPages,start+cfg.batchSize-1);
-      const prefix=path.join(tempDir,'page');
-      await execFileAsync('pdftoppm',['-f',String(start),'-l',String(end),'-scale-to','1250','-jpeg','-jpegopt','quality=65',filePath,prefix],{timeout:180000,maxBuffer:4*1024*1024});
-      const names=fs.readdirSync(tempDir).filter(n=>/^page-\d+\.jpg$/i.test(n)).sort((a,b)=>Number(a.match(/(\d+)/)[1])-Number(b.match(/(\d+)/)[1]));
-      for(const name of names){
-        const pageNumber=Number(name.match(/(\d+)/)[1]);
-        if(pageNumber<start||pageNumber>end||byPage.has(pageNumber))continue;
-        let description=''; let lastError=null;
-        for(let attempt=0;attempt<2;attempt++){
-          try{description=await describeOneBookPage(path.join(tempDir,name),pageNumber);lastError=null;break;}
-          catch(e){lastError=e;if(attempt===0)await new Promise(r=>setTimeout(r,1200));}
-        }
-        if(lastError)throw lastError;
-        byPage.set(pageNumber,{pageNumber,description,analyzedAt:new Date().toISOString()});
-        const pages=[...byPage.values()].sort((a,b)=>a.pageNumber-b.pageNumber);
-        saveBookVisualProgress(bookId,{visualPages:pages,visualStatus:'processing',visualPagesAnalyzed:pages.length,visualTotalPages:totalPages,visualProgressPercent:Math.round(pages.length/totalPages*100),visualWarning:''});
-      }
-      // Release rendered page files after each batch; continue through every page in the book.
-      for(const name of fs.readdirSync(tempDir))if(/^page-\d+\.jpg$/i.test(name))try{fs.unlinkSync(path.join(tempDir,name));}catch{}
-    }
-    saveBookVisualProgress(bookId,{visualStatus:'complete',visualPages:[...byPage.values()].sort((a,b)=>a.pageNumber-b.pageNumber),visualPagesAnalyzed:byPage.size,visualTotalPages:totalPages,visualProgressPercent:100,visualWarning:'',visualCompletedAt:new Date().toISOString()});
-    audit(String(process.env.ADMIN_EMAIL||'system'),'curriculum.visual-analysis.complete',{bookId,title:initial.title,pages:byPage.size});
-  }catch(error){
-    console.error('Book visual analysis failed:',error.message);
-    const current=readData().books.find(b=>b.id===bookId); const count=(current?.visualPages||[]).length;
-    saveBookVisualProgress(bookId,{visualStatus:'error',visualPagesAnalyzed:count,visualWarning:`توقف تحليل الصور عند ${count} صفحة من أصل ${totalPages}. السبب المحتمل: إعداد خدمة الرؤية أو حدّ الطلبات. اضغط إعادة التحليل للمتابعة؛ الصفحات المكتملة محفوظة.`,visualError:String(error.message||'error').slice(0,180),visualUpdatedAt:new Date().toISOString()});
-  }finally{try{fs.rmSync(tempDir,{recursive:true,force:true});}catch{}}
-}
-function visualPagesMatchingQuestion(book, question, excerpt=''){
-  const pages=Array.isArray(book?.visualPages)?book.visualPages:[]; if(!pages.length)return [];
-  const q=String(question||'');
-  const pageMatch=q.match(/(?:صفحة|الصفحة|page)\s*([0-9٠-٩]+)/i);
-  if(pageMatch){const raw=pageMatch[1].replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));const exact=pages.filter(p=>Number(p.pageNumber)===Number(raw));if(exact.length)return exact.slice(0,3);}
-  const words=String(q+' '+excerpt).toLocaleLowerCase('ar').split(/[^\p{L}\p{N}]+/u).filter(w=>w.length>=3);
-  const unique=[...new Set(words)];
-  const ranked=pages.map(p=>{const desc=String(p.description||'');const hay=(desc+' '+String(p.pageNumber)).toLocaleLowerCase('ar');let score=0;for(const w of unique)if(hay.includes(w))score++;return {...p,score};}).sort((a,b)=>b.score-a.score||a.pageNumber-b.pageNumber);
-  const matched=ranked.filter(p=>p.score>0).slice(0,5);if(matched.length)return matched;
-  if(/رسم|رسوم|صورة|صور|شكل|جدول|خريطة|خرائط|مخطط|تجربة|بياني|بيانية/i.test(q))return ranked.filter(p=>!/لا يوجد عنصر بصري تعليمي بارز/.test(String(p.description||''))).slice(0,5);
-  return [];
-}
-function visualContextForQuestion(book, question, excerpt=''){
-  const pages=Array.isArray(book?.visualPages)?book.visualPages:[]; if(!pages.length)return '';
-  const relevant=visualPagesMatchingQuestion(book,question,excerpt);
-  const finalPages=relevant.length?relevant:pages.slice(0,Math.min(3,pages.length));
-  return finalPages.map(p=>`صفحة ${p.pageNumber}: ${p.description}`).join('\n').slice(0,9000);
-}
 function inferOutline(text){const lines=text.split(/\r?\n/).map(x=>x.trim()).filter(x=>x.length>2&&x.length<140);const re=/^(?:الوحدة|الفصل|الباب|الدرس|الموضوع|Unit|Chapter|Lesson)\s*[:：-]?\s*[\d٠-٩]*\s*.*$/i;const heads=[];for(const line of lines){if(re.test(line)||/^(?:الوحدة|الفصل|الباب|الدرس|الموضوع)\s+[\d٠-٩]+/.test(line)){if(!heads.includes(line))heads.push(line);}}return heads.slice(0,100).map((title,i)=>({id:'outline-'+i,title}));}
 function readBody(req, max=100000){return new Promise((resolve,reject)=>{let body='';req.on('data',chunk=>{body+=chunk;if(body.length>max){reject(Object.assign(new Error('البيانات كبيرة جدًا'),{status:413}));req.destroy();}});req.on('end',()=>{try{resolve(JSON.parse(body||'{}'));}catch{reject(Object.assign(new Error('صيغة البيانات غير صحيحة'),{status:400}));}});req.on('error',reject);});}
 const systemPrompt = `أنت المعلّم المساعد في منصة «تعلّم مع الهيثم»، تخاطب طفلًا عربيًا بلطف واحترام. اشرح بالعربية الواضحة البسيطة المناسبة للأطفال، ويمكنك فهم اللهجة اليمنية والرد بفصحى سهلة من دون السخرية من لهجة الطفل. اشرح خطوة بخطوة، استخدم مثالًا صغيرًا ثم اسأل سؤالًا يساعد على الفهم. لا تدّع أنك إنسان. لا تطلب الاسم الكامل أو العنوان أو رقم الهاتف أو كلمة المرور أو أي بيانات شخصية. لا تقدّم محتوى جنسيًا أو عنيفًا أو خطيرًا أو إرشادات لإيذاء النفس أو الآخرين. إذا ذكر الطفل خطرًا مباشرًا أو أذى أو إساءة، شجعه على إخبار ولي أمر موثوق أو معلّم موثوق فورًا، وفي حالة الطوارئ اطلب مساعدة شخص بالغ قريب. إذا لم تعرف إجابة مؤكدة فقل ذلك بوضوح ولا تخترع. لا تقدّم تشخيصًا طبيًا أو نصائح قانونية أو مالية عالية المخاطر. اجعل الرد مختصرًا ومشجعًا.`;
@@ -258,28 +159,215 @@ async function teacherAnswer(question, history=[], curriculum=null){
   const key=process.env.AI_API_KEY;
   if(!key) return {configured:false, grounded:Boolean(curriculum), bookTitle:curriculum?.book?.title||null, answer:curriculum?'الكتاب «'+curriculum.book.title+'» محدد، لكن خدمة المعلّم الذكي غير مفعّلة على الخادم؛ لذلك لا أريد عرض كلمات مستخرجة من PDF وكأنها شرح صحيح. فعّل AI_API_KEY في إعدادات الاستضافة، ثم أعد طلب الشرح.':'خدمة المعلّم الذكي غير مفعّلة على الخادم.'};
   const base=(process.env.AI_BASE_URL||'https://api.openai.com/v1').replace(/\/$/,'');
-  const model=process.env.AI_MODEL||(aiProvider()==='gemini'?'gemini-2.5-flash':'gpt-4o-mini');
-  const groundedRules=curriculum?`\n\nقيد تعليمي إلزامي: افهم سؤال الطفل بصيغته الطبيعية واللهجة ولا تشترط تطابق كلمات السؤال مع نص الكتاب. أجب اعتمادًا على المقتطف من الكتاب المحدد، ولا تنسب للكتاب معلومات غير موجودة فيه. إذا طلب شرحًا عامًا، ابدأ بشرح تمهيدي مما يظهر في المقتطف؛ وإذا لم يكفِ النص فاطلب منه عنوان الدرس أو توضيحًا بلطف. اجعل الشرح مناسبًا للصوت: جمل قصيرة، خطوة خطوة، مع مثال محسوس وأسئلة بسيطة عند الحاجة. إذا كان الصف من الأول إلى الثالث فاستخدم مفردات طفولية مشجعة، وفكرة واحدة في كل خطوة، وعدًّا محسوسًا باستخدام تفاحات أو أقلام أو مكعبات، ثم اطلب من الطفل تجربة سؤال صغير. لا تكتفِ بإعادة صياغة الكتاب أو قراءته. للرياضيات اكتب خطوات الحل بالأرقام بوضوح وبيّن ماذا أضفنا أو أزلنا. للصفوف الرابع إلى السادس اشرح المصطلحات ثم أعط مثالًا وتدريبًا متدرجًا. لا تدّعِ أنك عرضت صورة أو حركة فعلية إذا لم تكن قد عُرضت في الواجهة.\nالكتاب: ${curriculum.book.title} | الصف: ${curriculum.book.grade||'غير محدد'} | المادة: ${curriculum.book.subject||'غير محددة'}.\nمقتطف نص الكتاب:\n${curriculum.excerpt}\n\nوصف العناصر البصرية التعليمية من صفحات الكتاب (إن توفر):\n${curriculum.visualContext||'لم يتوفر تحليل بصري لهذا الكتاب بعد. لا تدّع أنك رأيت رسومات غير موصوفة.'}\nإذا كان الوصف البصري متاحًا، اشرح الرسم أو الجدول أو التجربة بلغة مناسبة للطالب، واذكر رقم الصفحة. لا تخترع تفاصيل غير موجودة في الوصف.`:'';
+  const model=process.env.AI_MODEL||'gpt-4o-mini';
+  const groundedRules=curriculum?`\n\nقيد تعليمي إلزامي: افهم سؤال الطفل بصيغته الطبيعية واللهجة ولا تشترط تطابق كلمات السؤال مع نص الكتاب. أجب اعتمادًا على المقتطف من الكتاب المحدد، ولا تنسب للكتاب معلومات غير موجودة فيه. إذا طلب شرحًا عامًا، ابدأ بشرح تمهيدي مما يظهر في المقتطف؛ وإذا لم يكفِ النص فاطلب منه عنوان الدرس أو توضيحًا بلطف. اجعل الشرح مناسبًا للصوت: جمل قصيرة، خطوة خطوة، مع مثال محسوس وأسئلة بسيطة عند الحاجة.\nالكتاب: ${curriculum.book.title} | الصف: ${curriculum.book.grade||'غير محدد'} | المادة: ${curriculum.book.subject||'غير محددة'}.\nمقتطف نص الكتاب:\n${curriculum.excerpt}`:'';
   const messages=[{role:'system',content:systemPrompt+groundedRules}];
   for(const item of history.slice(-6)) if(item && ['user','assistant'].includes(item.role) && typeof item.content==='string') messages.push({role:item.role,content:item.content.slice(0,1500)});
   messages.push({role:'user',content:question.slice(0,2000)});
   const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),25000);
   try{
-    let answer='';
-    if(aiProvider()==='gemini'){
-      const system=messages.find(m=>m.role==='system')?.content||systemPrompt;
-      const contents=messages.filter(m=>m.role!=='system').map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]}));
-      answer=await generateGeminiContent({model,contents,systemInstruction:system,generationConfig:{temperature:0.55,maxOutputTokens:700}});
-    }else{
-      const r=await fetch(base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model,messages,temperature:0.55,max_tokens:700}),signal:controller.signal});
-      const payload=await r.json().catch(()=>({}));
-      if(!r.ok){console.error('AI provider returned status',r.status);throw new Error('تعذّر الوصول إلى المعلّم الذكي الآن. حاول بعد قليل.');}
-      const content=payload.choices?.[0]?.message?.content;answer=typeof content==='string'?content.trim():'';
-    }
-    if(!answer) throw new Error('وصل رد غير مكتمل. حاول مرة أخرى.');
-    return {configured:true,answer:answer.slice(0,5000)};
+    const r=await fetch(base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model,messages,temperature:0.55,max_tokens:700}),signal:controller.signal});
+    const payload=await r.json().catch(()=>({}));
+    if(!r.ok){console.error('AI provider returned status',r.status);throw new Error('تعذّر الوصول إلى المعلّم الذكي الآن. حاول بعد قليل.');}
+    const answer=payload.choices?.[0]?.message?.content;
+    if(typeof answer!=='string'||!answer.trim()) throw new Error('وصل رد غير مكتمل. حاول مرة أخرى.');
+    return {configured:true,answer:answer.trim().slice(0,5000)};
   }catch(e){if(e.name==='AbortError')throw new Error('تأخر الرد. حاول مرة أخرى.');throw e;}finally{clearTimeout(timer);}
 }
+// ===================== Student learning API (public + rate-limited) =====================
+const bookCache=new Map();
+function preparedBook(book){
+  const raw=String(book.extractedText||''); const key=book.id+':'+raw.length; let v=bookCache.get(key);
+  if(!v){const fx=learn.prepareBookText(raw); v={text:fx.text,fixed:fx.fixed,outline:learn.buildOutline(fx.text)}; bookCache.set(key,v); if(bookCache.size>40)bookCache.delete(bookCache.keys().next().value);}
+  return v;
+}
+let aiDay={d:'',n:0};
+async function aiChat(messages,{temperature=0.4,max_tokens=1000,timeoutMs=30000}={}){
+  const key=process.env.AI_API_KEY;
+  if(!key){const e=new Error('المعلّم الذكي غير مفعّل على الخادم.');e.code='NO_AI';throw e;}
+  const today=new Date().toISOString().slice(0,10); if(aiDay.d!==today)aiDay={d:today,n:0};
+  if(aiDay.n>=Number(process.env.AI_DAILY_LIMIT||3000)){const e=new Error('وصلت المنصة إلى الحد اليومي لاستخدام المعلّم الذكي. حاول غدًا.');e.status=429;throw e;}
+  aiDay.n++;
+  const base=(process.env.AI_BASE_URL||'https://api.openai.com/v1').replace(/\/$/,''); const model=process.env.AI_MODEL||'gpt-4o-mini';
+  const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),timeoutMs);
+  try{
+    const r=await fetch(base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model,messages,temperature,max_tokens}),signal:controller.signal});
+    const payload=await r.json().catch(()=>({}));
+    if(!r.ok){console.error('AI provider status',r.status);throw new Error('تعذّر الوصول إلى المعلّم الذكي الآن. حاول بعد قليل.');}
+    const out=payload.choices?.[0]?.message?.content;
+    if(typeof out!=='string'||!out.trim())throw new Error('وصل رد غير مكتمل. حاول مرة أخرى.');
+    return out.trim();
+  }catch(e){if(e.name==='AbortError')throw new Error('تأخر الرد. حاول مرة أخرى.');throw e;}finally{clearTimeout(timer);}
+}
+function parseJsonLoose(raw){
+  let s=String(raw).trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'');
+  try{return JSON.parse(s);}catch{}
+  const a=s.indexOf('{'),b=s.lastIndexOf('}'); if(a>=0&&b>a){try{return JSON.parse(s.slice(a,b+1));}catch{}}
+  return null;
+}
+const LEARN_BASE_RULES='أنت «الهيثم»، معلّم عربي بارع ولطيف يشرح لطلاب المدارس. مهمتك أن تُفهِم الطالب درسه الموجود في نص الكتاب المرفق. لا تقرأ النص كما هو ولا تنقله جملة بجملة؛ بل اشرحه بأسلوبك كمعلّم يحدّث طلابه (مثل: «انظر يا صديقي ماذا قال النبي صلى الله عليه وسلم…»)، وبسّط الكلمات الصعبة، وأعطِ أمثلة من حياة الطالب. التزم بموضوع الكتاب ومعانيه: لا تغيّر المعنى ولا تضف أحكامًا أو معلومات جديدة غير موجودة في الكتاب، ويجوز فقط التوضيح والتمثيل المرتبط بالموضوع نفسه. إذا ذكرت النبي فاكتب «صلى الله عليه وسلم» كاملة ولا تستخدم الرموز المختصرة. في الفقرة الأخيرة اذكر النص الأصلي المهم من الكتاب (آية أو حديثًا أو تعريفًا أو قاعدة) بادئًا بعبارة «نص الكتاب:» ثم النص حرفيًا كما ورد في المقتطف دون أي تغيير. وإذا كان القسم مسألة أو قاعدة في الرياضيات أو العلوم فحلّها وفسّرها خطوة خطوة بأعداد وأمثلة محسوسة (كتفاحات نطرح منها أو نضيف إليها)، مع توضيح كل عملية قبل ذكر الناتج. لا تطلب أي بيانات شخصية، والتزم بمحتوى مناسب للأطفال.';
+function stageStyle(stage){return stage==='kids'
+  ?'الطالب في الصفوف الأولى من الابتدائية: استخدم جملًا قصيرة جدًا وكلمات سهلة ومثالًا من حياة الطفل، وابدأ بترحيب قصير، واجعل في الشرح سؤالًا بسيطًا يشجّعه على التفكير. يمكنك استخدام رمز تعبيري واحد في بعض الفقرات فقط.'
+  :'الطالب يقرأ جيدًا: اشرح بوضوح وتنظيم مع أمثلة مناسبة، وابدأ بالفكرة العامة ثم التفاصيل، ثم اختم بخلاصة قصيرة قبل «نص الكتاب:».';}
+const FORMAT_RULE='اكتب نصًا عاديًا فقط دون رموز تنسيق (لا نجوم ولا # ولا قوائم مرقمة ولا جداول). قسّم الكلام إلى فقرات قصيرة يفصل بينها سطر فارغ، وكل فقرة من جملة إلى ثلاث جمل ليقرأها الطالب بصوت عالٍ.';
+const TEACH_TASKS={
+  explain:'اشرح القسم التالي شرحًا وافيًا ومبسّطًا كأنك تعلّمه لطلابك (لا تنقل النص): من 6 إلى 9 فقرات قصيرة، ثم فقرة أخيرة تبدأ بـ«نص الكتاب:».',
+  simple:'أعد شرح القسم التالي بطريقة أبسط بكثير وبمثال جديد: من 4 إلى 6 فقرات قصيرة، ثم فقرة أخيرة تبدأ بـ«نص الكتاب:».',
+  summary:'لخّص القسم التالي تلخيصًا شارحًا (لا تكتفِ بنقل الجمل): من 4 إلى 6 فقرات قصيرة تذكر الأفكار المهمة بأسلوب مفهوم، ثم فقرة أخيرة تبدأ بـ«نص الكتاب:».',
+  ask:'أجب عن سؤال الطالب مستندًا إلى القسم التالي في 2 إلى 4 فقرات قصيرة، وإن وُجد نص مهم يتعلق بالسؤال فاختم بفقرة تبدأ بـ«نص الكتاب:».'
+};
+function learnBook(bookId){
+  const book=readData().books.find(b=>b.id===String(bookId||'')&&b.extractedText&&b.extractedText.length>100);
+  return book?{book,prep:preparedBook(book)}:null;
+}
+function learnResolve(body){
+  const lb=learnBook(body.bookId); if(!lb)return {status:404,error:'لم أجد هذا الكتاب. اختر كتابًا من القائمة.'};
+  const sectionId=String(body.sectionId||'').slice(0,20); const query=String(body.query||body.question||'').slice(0,300);
+  const sec=learn.resolveSection(lb.prep.text,lb.prep.outline,{sectionId,query});
+  if(!sec)return {status:404,error:'لم أجد في الكتاب ما يخص طلبك. جرّب اختيار الدرس من القائمة أو اكتب اسم الدرس.'};
+  if(sec.notFound){const names={unit:'الوحدة',lesson:'الدرس'};return {status:404,error:'لم أجد «'+names[sec.ref.kind]+' رقم '+sec.ref.num+'» في هذا الكتاب. اختر من القائمة.'};}
+  if(sec.unreadable||sec.text.length<40)return {status:422,error:'النص المستخرج من هذا الجزء غير واضح. اطلب من مدير المنصة إعادة رفع الكتاب بجودة أفضل.'};
+  return {lb,sec};
+}
+function splitSlides(answer,stage){
+  const cleaned=learn.cleanForSpeech(answer).replace(/\n{3,}/g,'\n\n');
+  let paras=cleaned.split(/\n{2,}/).map(s=>s.replace(/\n/g,' ').trim()).filter(Boolean);
+  if(paras.length<2)paras=learn.slidesFromText(cleaned,8,stage==='kids'?160:240);
+  return paras.slice(0,12).map(s=>({t:s.slice(0,700),src:/^نص الكتاب\s*[:：]/.test(s)}));
+}
+const plainSlides=list=>list.map(s=>({t:s,src:false}));
+const ttsCache=new Map(); let ttsDay={d:'',n:0};
+function ttsConfigured(){return process.env.TTS_ENABLED!=='0'&&Boolean(process.env.TTS_API_KEY||process.env.AI_API_KEY);}
+function ttsProvider(){
+  const forced=String(process.env.TTS_PROVIDER||'').toLowerCase(); if(forced==='gemini'||forced==='openai')return forced;
+  return /generativelanguage\.googleapis\.com/.test((process.env.TTS_BASE_URL||'')+(process.env.AI_BASE_URL||''))?'gemini':'openai';
+}
+// Gemini returns raw 16-bit mono PCM (base64); browsers need a WAV container to play it.
+function pcmToWav(pcm,rate){
+  const h=Buffer.alloc(44); h.write('RIFF',0); h.writeUInt32LE(36+pcm.length,4); h.write('WAVEfmt ',8); h.writeUInt32LE(16,16); h.writeUInt16LE(1,20); h.writeUInt16LE(1,22);
+  h.writeUInt32LE(rate,24); h.writeUInt32LE(rate*2,28); h.writeUInt16LE(2,32); h.writeUInt16LE(16,34); h.write('data',36); h.writeUInt32LE(pcm.length,40);
+  return Buffer.concat([h,pcm]);
+}
+async function synthesize(text,signal){
+  const key=process.env.TTS_API_KEY||process.env.AI_API_KEY;
+  if(ttsProvider()==='gemini'){
+    const model=process.env.TTS_MODEL||'gemini-2.5-flash-preview-tts',voice=process.env.TTS_VOICE||'Kore';
+    const base=(process.env.TTS_BASE_URL||'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/,'');
+    const r=await fetch(base+'/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},signal,
+      body:JSON.stringify({contents:[{parts:[{text}]}],generationConfig:{responseModalities:['AUDIO'],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:voice}}}}})});
+    if(!r.ok){console.error('TTS (gemini) provider status',r.status);return null;}
+    const j=await r.json().catch(()=>null); const part=j?.candidates?.[0]?.content?.parts?.find(x=>x.inlineData?.data);
+    if(!part){console.error('TTS (gemini) returned no audio');return null;}
+    const rate=Number((/rate=(\d+)/.exec(part.inlineData.mimeType||'')||[])[1])||24000;
+    return {buf:pcmToWav(Buffer.from(part.inlineData.data,'base64'),rate),type:'audio/wav',id:'gemini|'+model+'|'+voice};
+  }
+  const model=process.env.TTS_MODEL||'tts-1',voice=process.env.TTS_VOICE||'alloy';
+  const base=(process.env.TTS_BASE_URL||process.env.AI_BASE_URL||'https://api.openai.com/v1').replace(/\/$/,'');
+  const r=await fetch(base+'/audio/speech',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model,voice,input:text,response_format:'mp3'}),signal});
+  if(!r.ok){console.error('TTS provider status',r.status);return null;}
+  return {buf:Buffer.from(await r.arrayBuffer()),type:r.headers.get('content-type')||'audio/mpeg',id:'openai|'+model+'|'+voice};
+}
+async function handleSpeak(res,body){
+  if(!ttsConfigured())return send(res,503,{error:'الصوت السحابي غير مفعّل على الخادم.'});
+  const text=learn.cleanForSpeech(String(body.text||'')).slice(0,800);
+  if(text.length<2)return send(res,400,{error:'لا يوجد نص للقراءة.'});
+  const key=crypto.createHash('sha1').update(ttsProvider()+'|'+(process.env.TTS_MODEL||'')+'|'+(process.env.TTS_VOICE||'')+'|'+text).digest('hex');
+  const hit=ttsCache.get(key);
+  if(hit){ttsCache.delete(key);ttsCache.set(key,hit);return send(res,200,hit.buf,hit.type);}
+  const day=new Date().toISOString().slice(0,10); if(ttsDay.d!==day)ttsDay={d:day,n:0};
+  if(ttsDay.n+text.length>Number(process.env.TTS_DAILY_CHARS||400000))return send(res,429,{error:'وصل الصوت السحابي إلى حدّه اليومي.'});
+  ttsDay.n+=text.length;
+  const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),30000);
+  try{
+    const out=await synthesize(text,controller.signal);
+    if(!out||out.buf.length<100)return send(res,502,{error:'تعذّر توليد الصوت الآن.'});
+    ttsCache.set(key,out); if(ttsCache.size>300)ttsCache.delete(ttsCache.keys().next().value);
+    return send(res,200,out.buf,out.type);
+  }catch(e){return send(res,502,{error:e.name==='AbortError'?'تأخر توليد الصوت.':'تعذّر توليد الصوت الآن.'});}finally{clearTimeout(timer);}
+}
+async function handleLearn(req,res,pathname){
+  try{
+    const limits={'/api/learn/speak':300,'/api/learn/teach':60,'/api/learn/quiz':30,'/api/learn/grade':150,'/api/learn/library':200,'/api/learn/outline':300,'/api/learn/status':300};
+    if(!(pathname in limits))return send(res,404,{error:'غير موجود'});
+    const rl=rateLimit(req,'learn:'+pathname,limits[pathname]);
+    if(!rl.allowed){res.setHeader('Retry-After',String(rl.retryAfter));return send(res,429,{error:'طلبات كثيرة في وقت قصير. انتظر قليلًا ثم حاول مرة أخرى.'});}
+    if(req.method==='GET'&&pathname==='/api/learn/status')return send(res,200,{ai:Boolean(process.env.AI_API_KEY),tts:ttsConfigured()});
+    if(req.method==='GET'&&pathname==='/api/learn/library'){
+      const books=readData().books.filter(b=>b.extractedText&&b.extractedText.length>100).slice(0,100).map(b=>({id:b.id,title:String(b.title||'كتاب').slice(0,120),grade:b.grade||'',subject:b.subject||'',term:b.term||'',pages:b.pages||0}));
+      return send(res,200,{books});
+    }
+    if(req.method==='GET'&&pathname==='/api/learn/outline'){
+      const id=new URL(req.url,'http://x').searchParams.get('bookId'); const lb=learnBook(id);
+      if(!lb)return send(res,404,{error:'لم أجد هذا الكتاب.'});
+      return send(res,200,{title:lb.book.title,...learn.outlineForClient(lb.prep.outline)});
+    }
+    if(req.method!=='POST')return send(res,405,{error:'طريقة غير مسموحة'});
+    const body=await readBody(req,8000);
+    if(pathname==='/api/learn/speak')return handleSpeak(res,body);
+    const stage=body.stage==='kids'?'kids':'reader';
+    if(pathname==='/api/learn/teach'){
+      const mode=Object.keys(TEACH_TASKS).includes(body.mode)?body.mode:'explain';
+      if(mode==='ask'&&!String(body.question||'').trim())return send(res,400,{error:'اكتب سؤالك أولًا.'});
+      const r=learnResolve(body); if(r.error)return send(res,r.status,{error:r.error});
+      const {lb,sec}=r; const base={title:sec.title,sectionId:sec.id,bookTitle:lb.book.title,mode};
+      let slides,configured=true,notice='';
+      try{
+        const sys=LEARN_BASE_RULES+'\n'+stageStyle(stage)+'\n'+FORMAT_RULE;
+        const user=TEACH_TASKS[mode]+(mode==='ask'?'\nسؤال الطالب: '+String(body.question).slice(0,500):'')+'\n\nعنوان القسم: '+sec.title+'\nالكتاب: '+lb.book.title+' | الصف: '+(lb.book.grade||'غير محدد')+'\nنص الكتاب:\n'+sec.text;
+        const out=await aiChat([{role:'system',content:sys},{role:'user',content:user}],{temperature:0.4,max_tokens:stage==='kids'?1400:1900});
+        slides=splitSlides(out,stage);
+      }catch(e){
+        if(e.code!=='NO_AI'&&e.status===429)throw e;
+        configured=e.code!=='NO_AI'?true:false;
+        slides=plainSlides(mode==='summary'?learn.simpleSummary(sec.text,5):learn.slidesFromText(sec.text,8,stage==='kids'?160:240));
+        notice=e.code==='NO_AI'?'هذا نص الكتاب نفسه، لأن المعلّم الذكي غير مفعّل على الخادم.':'تعذّر الشرح الذكي الآن، فهذا نص الكتاب نفسه. '+(e.message||'');
+        console.error('learn/teach fallback:',e.message);
+      }
+      if(!slides.length)return send(res,422,{error:'لم أستطع تجهيز الشرح لهذا الجزء.'});
+      return send(res,200,{...base,slides,configured,notice});
+    }
+    if(pathname==='/api/learn/quiz'){
+      const r=learnResolve(body); if(r.error)return send(res,r.status,{error:r.error});
+      const {lb,sec}=r; const count=Math.max(3,Math.min(8,Number(body.count)||5)); let questions=[],configured=true,notice='';
+      try{
+        const kinds=stage==='kids'?'كلها اختيار من متعدد بثلاثة خيارات قصيرة جدًا وسهلة.':'كلها اختيار من متعدد بثلاثة خيارات، ما عدا السؤال الأخير فيكون سؤالًا يُجاب عنه بجملة قصيرة (type: write) مع إجابة نموذجية.';
+        const prompt='أنشئ '+count+' أسئلة لاختبار فهم الطالب اعتمادًا حصريًا على النص أدناه. '+stageStyle(stage)+' '+kinds+' لا تضف معلومات من خارج النص. أخرج JSON فقط بلا أي شرح خارجه بهذا الشكل: {"questions":[{"type":"mcq","q":"...","options":["...","...","..."],"answer":0,"why":"سبب قصير للإجابة الصحيحة"},{"type":"write","q":"...","model":"إجابة نموذجية قصيرة"}]} حيث answer فهرس الإجابة الصحيحة يبدأ من صفر.\nعنوان القسم: '+sec.title+'\nالنص:\n'+sec.text.slice(0,7000);
+        const raw=await aiChat([{role:'system',content:LEARN_BASE_RULES},{role:'user',content:prompt}],{temperature:0.3,max_tokens:1400});
+        const parsed=parseJsonLoose(raw);
+        questions=(Array.isArray(parsed?.questions)?parsed.questions:[]).slice(0,8).map(q=>{
+          const text=String(q.q||q.question||'').trim().slice(0,400);
+          if(q.type==='write'&&text&&String(q.model||'').trim())return {type:'write',q:text,model:String(q.model).trim().slice(0,400)};
+          const options=(Array.isArray(q.options)?q.options:[]).slice(0,4).map(o=>String(o).trim().slice(0,200));
+          const answer=Number(q.answer);
+          if(text&&options.length>=2&&options.every(Boolean)&&Number.isInteger(answer)&&answer>=0&&answer<options.length)return {type:'mcq',q:text,options,answer,why:String(q.why||'').trim().slice(0,300)};
+          return null;
+        }).filter(Boolean);
+      }catch(e){
+        if(e.status===429)throw e;
+        notice=e.code==='NO_AI'?'الأسئلة هنا مولّدة آليًا من جمل الكتاب لأن المعلّم الذكي غير مفعّل.':'تعذّر توليد أسئلة ذكية الآن، فهذه أسئلة آلية من جمل الكتاب.';
+        configured=e.code!=='NO_AI';
+      }
+      if(!questions.length){questions=learn.makeCloze(sec.text,count);if(!notice)notice='هذه أسئلة آلية من جمل الكتاب.';}
+      if(!questions.length)return send(res,422,{error:'لم أستطع تجهيز أسئلة لهذا الجزء. جرّب جزءًا آخر.'});
+      return send(res,200,{title:sec.title,sectionId:sec.id,bookTitle:lb.book.title,questions,configured,notice});
+    }
+    if(pathname==='/api/learn/grade'){
+      const q=String(body.q||'').slice(0,400),model=String(body.model||'').slice(0,400),answer=String(body.answer||'').trim().slice(0,600);
+      if(!q||!model)return send(res,400,{error:'بيانات السؤال ناقصة.'});
+      if(answer.length<2)return send(res,200,{score:0,feedback:'اكتب إجابتك أولًا.'});
+      try{
+        const raw=await aiChat([{role:'system',content:'أنت معلّم لطيف تصحح إجابة طالب. قارن إجابته بالإجابة النموذجية بالمعنى لا بالحرف. أخرج JSON فقط: {"score":0 أو 1 أو 2,"feedback":"جملة تشجيع قصيرة وتوضيح ما ينقص إن وُجد"} حيث 2 صحيحة و1 صحيحة جزئيًا و0 خاطئة.'},{role:'user',content:'السؤال: '+q+'\nالإجابة النموذجية: '+model+'\nإجابة الطالب: '+answer}],{temperature:0.1,max_tokens:200,timeoutMs:20000});
+        const g=parseJsonLoose(raw); const score=Number(g?.score);
+        if([0,1,2].includes(score))return send(res,200,{score,feedback:String(g.feedback||'').slice(0,300)});
+      }catch(e){if(e.status===429)throw e;}
+      const mt=learn.queryTerms(model),at=new Set(learn.queryTerms(answer)); const hit=mt.length?mt.filter(w=>[...at].some(a=>a.includes(w)||w.includes(a))).length/mt.length:0;
+      const score=hit>=0.6?2:hit>=0.3?1:0;
+      return send(res,200,{score,feedback:score===2?'أحسنت! إجابتك قريبة من إجابة الكتاب.':'الإجابة في الكتاب: '+model,approximate:true});
+    }
+    return send(res,404,{error:'غير موجود'});
+  }catch(e){return send(res,e.status||502,{error:e.message||'تعذّر تنفيذ الطلب الآن.'});}
+}
+
 function normalizeCurriculumText(value){
   return String(value||'').replace(/\u0000/g,' ').replace(/\r/g,'\n').replace(/[\t\f\v]+/g,' ')
     .replace(/[ \u00a0]{2,}/g,' ').replace(/\n[ \t]+/g,'\n').replace(/\n{3,}/g,'\n\n').trim();
@@ -293,33 +381,18 @@ function curriculumTextQuality(value){
   return {ok:score,text,arabicRatio,letterRatio,words:words.length};
 }
 function curriculumContext(question, bookId){
-  const db=readData(); const books=(db.books||[]).filter(b=>b.extractedText && b.extractedText.length>30);
+  const db=readData(); const books=(db.books||[]).filter(b=>b.extractedText && b.extractedText.length>30).map(b=>({...b,extractedText:preparedBook(b).text}));
   const chosen=bookId?books.filter(b=>b.id===bookId):books;
   if(!chosen.length)return null;
   const q=String(question||'').trim();
   // Resolve requests such as "اشرح الدرس الثاني" against headings extracted from the selected book.
   const ordinalWords={'الأول':1,'الاول':1,'الأولى':1,'الاولى':1,'الثاني':2,'الثانية':2,'الثالث':3,'الثالثة':3,'الرابع':4,'الرابعة':4,'الخامس':5,'الخامسة':5,'السادس':6,'السادسة':6,'السابع':7,'السابعة':7,'الثامن':8,'الثامنة':8,'التاسع':9,'التاسعة':9,'العاشر':10,'العاشرة':10};
-  const unitRequest=/(?:الوحدة|وحدة|unit|chapter)/i.test(q);
   const lessonRequest=/(?:درس|الدرس|دروس|lesson)/i.test(q);
   // Arabic word boundaries are not reliable with JavaScript \b; parse ordinals explicitly.
   const ordinalPattern='(?:[0-9٠-٩]+|الأول|الاول|الأولى|الاولى|الثاني|الثانية|الثالث|الثالثة|الرابع|الرابعة|الخامس|الخامسة|السادس|السادسة|السابع|السابعة|الثامن|الثامنة|التاسع|التاسعة|العاشر|العاشرة)';
   const ordinalMatch=q.match(new RegExp('(?:الدرس|درس|lesson)\\s*(?:رقم\\s*)?('+ordinalPattern+')','i'));
-  const unitOrdinalMatch=q.match(new RegExp('(?:الوحدة|وحدة|unit|chapter)\\s*(?:رقم\\s*)?('+ordinalPattern+')','i'));
-  if(unitRequest&&unitOrdinalMatch){
-    const raw=unitOrdinalMatch[1];const num=/^[0-9٠-٩]+$/.test(raw)?Number(raw.replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d))):ordinalWords[raw];
-    for(const book of chosen){
-      const text=normalizeCurriculumText(book.extractedText);
-      const heads=inferOutline(text).filter(h=>/^(?:الوحدة|وحدة|Unit|Chapter)\\s*(?:[0-9٠-٩]+|الأولى|الاولى|الأول|الاول|الثانية|الثاني|الثالثة|الثالث|الرابعة|الرابع|الخامسة|الخامس|السادسة|السادس|السابعة|السابع|الثامنة|الثامن|التاسعة|التاسع|العاشرة|العاشر)/i.test(h.title));
-      if(num&&heads.length>=num){
-        const title=heads[num-1].title;const at=text.indexOf(title);const next=heads[num]?.title;const nextAt=next?text.indexOf(next,at+title.length):-1;
-        const excerpt=text.slice(at,nextAt>at?nextAt:Math.min(text.length,at+11000)).trim().slice(0,9000);
-        if(excerpt.length>40&&curriculumTextQuality(excerpt).ok)return {book,excerpt,matched:true,unitTitle:title,unitNumber:num};
-      }
-    }
-    return {book:chosen[0],excerpt:'',matched:false,reason:'unit-not-found'};
-  }
   const pageRequest=/صفحة|الصفحة|page/i.test(q);
-  if(pageRequest){for(const book of chosen){const visual=visualPagesMatchingQuestion(book,q);if(visual.length)return {book,excerpt:'لا يتوفر نص مستخرج كافٍ من الصفحة المطلوبة؛ استخدم وصف العناصر البصرية المحفوظ من الصفحة المحددة فقط.',matched:true,visualOnly:true,visualContext:visual.map(p=>`صفحة ${p.pageNumber}: ${p.description}`).join('\n')};}return {book:chosen[0],excerpt:'',matched:false,reason:'page-index-unavailable'};}
+  if(pageRequest){return {book:chosen[0],excerpt:'',matched:false,reason:'page-index-unavailable'};}
   if(lessonRequest&&ordinalMatch){
     const raw=ordinalMatch[1]; const num=/^[0-9٠-٩]+$/.test(raw)?Number(raw.replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d))):ordinalWords[raw];
     for(const book of chosen){
@@ -338,8 +411,6 @@ function curriculumContext(question, bookId){
   for(const book of chosen){const chunks=normalizeCurriculumText(book.extractedText).split(/\n{2,}|(?<=[.!؟])\s+/).map(x=>x.trim()).filter(x=>x.length>=45&&curriculumTextQuality(x).ok);for(const text of chunks){const low=text.toLowerCase();let score=0;for(const term of terms)if(low.includes(term))score++;if(score&&(!best||score>best.score))best={book,text,score};}}
   if(!best){
     const book=chosen[0]; const text=normalizeCurriculumText(book.extractedText||'');
-    const visualMatches=visualPagesMatchingQuestion(book,q);
-    if(visualMatches.length)return {book,excerpt:'لا يتوفر نص مستخرج مطابق للسؤال. اعتمد فقط على أوصاف الرسوم التعليمية المحفوظة من صفحات هذا الكتاب، ولا تخمّن ما لا يظهر فيها.',matched:true,visualOnly:true,visualContext:visualMatches.map(p=>`صفحة ${p.pageNumber}: ${p.description}`).join('\n')};
     if(!curriculumTextQuality(text.slice(0,Math.min(text.length,5500))).ok)return {book,excerpt:'',matched:false,reason:'text-quality-low'};
     // A generic learning request is not evidence that the first extracted page is the requested lesson.
     // Only permit a general overview when the user explicitly asks for an overview of the whole book.
@@ -380,7 +451,6 @@ const server = http.createServer(async (req,res)=>{
   if(req.method==='GET'&&pathname==='/api/school-member/me'){const ss=sessionSchoolMember(req);return send(res,200,{authenticated:!!ss,member:ss?{id:ss.member.id,name:ss.member.name,email:ss.member.email,role:ss.member.role,grade:ss.member.grade,section:ss.member.section,subjects:ss.member.subjects}:null,school:ss?publicSchool(ss.school):null});}
   if(req.method==='POST'&&pathname==='/api/school-member/logout'){const ss=sessionSchoolMember(req);if(ss){schoolMemberSessions.delete(ss.token);saveSchoolMemberSessions();}memberCookie(res,'',0);return send(res,200,{authenticated:false});}
   if(req.method==='GET'&&pathname==='/api/school-member/posts'){const ss=requireSchoolMember(req,res);if(!ss)return;let posts=readSchoolPosts().posts.filter(p=>p.schoolId===ss.school.id&&p.status==='published');if(ss.member.role==='student'){posts=posts.filter(p=>(!p.grade||p.grade===ss.member.grade)&&(!p.section||p.section===ss.member.section));}else{posts=posts.filter(p=>p.type==='announcement'&&(!p.grade||!ss.member.grade||p.grade===ss.member.grade)||((!p.grade&& !ss.member.grade)||(!!ss.member.grade&&p.grade===ss.member.grade))&&((!p.section&&!ss.member.section)||(!!ss.member.section&&p.section===ss.member.section))&&((!p.subject&&!ss.member.subjects?.length)||(!p.subject)||(!!ss.member.subjects?.includes(p.subject))));}posts=posts.map(({attachmentFile,...p})=>({...p,hasAttachment:!!attachmentFile,attachmentUrl:attachmentFile?'/api/school-member/assignment-pdf/'+p.id:null}));return send(res,200,{school:publicSchool(ss.school),member:{name:ss.member.name,role:ss.member.role,grade:ss.member.grade,section:ss.member.section},posts});}
-
   if(req.method==='POST'&&pathname==='/api/school-member/teacher-posts'){const ss=requireSchoolMember(req,res);if(!ss)return;if(ss.member.role!=='teacher')return send(res,403,{error:'هذه الوظيفة مخصصة للمعلمين.'});try{const b=await readBody(req,20000),title=String(b.title||'').trim(),content=String(b.content||'').trim(),type=['announcement','lesson','summary','assignment','quiz'].includes(b.type)?b.type:'lesson',grade=String(b.grade||'').trim().slice(0,80),section=String(b.section||'').trim().slice(0,80),subject=String(b.subject||'').trim().slice(0,100);if(!title||!content)return send(res,400,{error:'العنوان والتفاصيل مطلوبان.'});if(!ss.member.subjects?.includes(subject))return send(res,403,{error:'لا يمكنك النشر في مادة غير مسندة إليك.'});if(grade&&ss.member.grade&&grade!==ss.member.grade)return send(res,403,{error:'لا يمكنك النشر لصف غير مسند إليك.'});const post={id:crypto.randomUUID(),schoolId:ss.schoolId,academicYear:String(ss.school.schoolYear||''),createdBy:ss.member.id,createdByRole:'teacher',title,content,type,grade:grade||ss.member.grade||'',section:section||ss.member.section||'',subject,dueAt:String(b.dueAt||'').slice(0,40),status:b.publish===false?'draft':'published',createdAt:new Date().toISOString()};const d=readSchoolPosts();d.posts.unshift(post);saveJsonFile(schoolPostsFile,d);audit(ss.member.email,'teacher.school_post.create',{schoolId:ss.schoolId,postId:post.id,type});return send(res,201,{post});}catch(e){return send(res,400,{error:e.message||'تعذّر نشر المحتوى.'});}}
   if(req.method==='GET'&&pathname==='/api/school-admin/members'){const ss=requireSchoolAdmin(req,res);if(!ss)return;const members=readSchoolMembers().members.filter(m=>m.schoolId===ss.schoolId).map(({id,name,email,role,grade,section,subjects,status,active,createdAt,reviewedAt})=>({id,name,email,role,grade,section,subjects,status,active,createdAt,reviewedAt}));return send(res,200,{members});}
   if(req.method==='POST'&&pathname==='/api/school-admin/members/review'){const ss=requireSchoolAdmin(req,res);if(!ss)return;if(ss.account.schoolRole==='deputy'&&!(ss.school.delegation?.deputyId===ss.account.id&&Date.parse(ss.school.delegation.expiresAt)>Date.now()))return send(res,403,{error:'مراجعة طلبات الحسابات تتطلب تفويضًا مؤقتًا ساريًا من مدير المدرسة.'});try{const b=await readBody(req,3000),d=readSchoolMembers(),m=d.members.find(x=>x.id===String(b.id||'')&&x.schoolId===ss.schoolId);if(!m)return send(res,404,{error:'طلب الانضمام غير موجود في مدرستك.'});if(!['approve','reject','disable'].includes(b.action))return send(res,400,{error:'الإجراء غير معروف.'});if(b.action==='approve'){m.status='approved';m.active=true;}else if(b.action==='reject'){m.status='rejected';m.active=false;}else{m.status='approved';m.active=false;}m.reviewedAt=new Date().toISOString();saveSchoolMembers(d);for(const [token,s] of schoolMemberSessions)if(s.memberId===m.id)schoolMemberSessions.delete(token);saveSchoolMemberSessions();audit(ss.email,'school_member.review',{schoolId:ss.schoolId,memberId:m.id,action:b.action});return send(res,200,{id:m.id,status:m.status,active:m.active});}catch(e){return send(res,400,{error:e.message||'تعذّرت مراجعة الطلب.'});}}
@@ -454,10 +524,6 @@ const server = http.createServer(async (req,res)=>{
   }
   if(req.method==='POST'&&pathname==='/api/school-member/submissions'){const ss=requireSchoolMember(req,res);if(!ss)return;if(ss.member.role!=='student')return send(res,403,{error:'تسليم الواجبات متاح لحساب الطالب فقط.'});try{const b=await readBody(req,12000),post=readSchoolPosts().posts.find(p=>p.id===String(b.postId||'')&&p.schoolId===ss.school.id&&p.type==='assignment'&&p.status==='published');if(!post)return send(res,404,{error:'الواجب غير موجود أو غير متاح.'});if((post.grade&&post.grade!==ss.member.grade)||(post.section&&post.section!==ss.member.section))return send(res,403,{error:'هذا الواجب غير موجه إلى صفك أو شعبتك.'});const answer=String(b.answer||'').trim();const d=readSchoolSubmissions();const prior=d.submissions.find(x=>x.postId===post.id&&x.studentId===ss.member.id);if(!answer&&!prior?.attachmentFile)return send(res,400,{error:'اكتب إجابتك أو أرفق ملف PDF للحل.'});let sub=d.submissions.find(x=>x.postId===post.id&&x.studentId===ss.member.id);if(sub){if(answer)sub.answer=answer.slice(0,10000);sub.updatedAt=new Date().toISOString();sub.status='submitted';sub.score=null;sub.feedback='';sub.gradedAt=null;}else{sub={id:crypto.randomUUID(),schoolId:ss.school.id,academicYear:String(post.academicYear||ss.school.schoolYear||''),postId:post.id,studentId:ss.member.id,answer:answer.slice(0,10000),status:'submitted',submittedAt:new Date().toISOString(),score:null,feedback:'',gradedAt:null};d.submissions.push(sub);}saveJsonFile(schoolSubmissionsFile,d);audit(ss.member.email,'school.assignment.submit',{schoolId:ss.school.id,postId:post.id});return send(res,201,{submission:{id:sub.id,status:sub.status,submittedAt:sub.submittedAt||sub.updatedAt}});}catch(e){return send(res,400,{error:e.message||'تعذّر تسليم الواجب.'});}}
   if(req.method==='GET'&&pathname==='/api/school-member/submissions'){const ss=requireSchoolMember(req,res);if(!ss)return;if(ss.member.role!=='student')return send(res,403,{error:'هذه الوظيفة مخصصة للطلاب.'});const posts=readSchoolSubmissions().submissions.filter(x=>x.schoolId===ss.school.id&&x.studentId===ss.member.id).map(({attachmentFile,...x})=>({...x,attachmentUrl:attachmentFile?'/api/school-member/submission-pdf/'+x.id:null}));return send(res,200,{submissions:posts});}
-
-  if(req.method==='GET'&&pathname==='/api/school-member/learning-progress'){const ss=requireSchoolMember(req,res);if(!ss)return;if(ss.member.role!=='student')return send(res,403,{error:'سجل التعلّم الشخصي متاح لحساب الطالب فقط.'});const db=readJsonFile(learningProgressFile,{events:[]}),events=(db.events||[]).filter(e=>e.schoolId===ss.schoolId&&e.studentId===ss.member.id).sort((a,b)=>String(b.at).localeCompare(String(a.at)));const bySkill={};for(const e of events){const z=bySkill[e.skill]??={skill:e.skill,title:e.title,attempts:0,correct:0,completed:0,lastAt:null};z.attempts++;if(e.correct)z.correct++;if(e.completed)z.completed++;if(!z.lastAt||String(e.at)>z.lastAt)z.lastAt=e.at;}return send(res,200,{events:events.slice(0,100),summary:{events:events.length,completed:events.filter(e=>e.completed).length,correct:events.filter(e=>e.correct).length,skills:Object.values(bySkill)}});}
-  if(req.method==='POST'&&pathname==='/api/school-member/learning-progress'){const ss=requireSchoolMember(req,res);if(!ss)return;if(ss.member.role!=='student')return send(res,403,{error:'تسجيل التقدم متاح لحساب الطالب فقط.'});try{const b=await readBody(req,5000),allowedSkills=['letters','add','subtract','multiply','compare','reading','curriculum','other'],allowedActivities=['guided-lesson','math-lab','reading-lab','curriculum-lesson'];const skill=String(b.skill||'other'),activity=String(b.activity||'guided-lesson'),eventId=String(b.eventId||'').slice(0,100),title=String(b.title||'نشاط تعليمي').trim().slice(0,180);if(!eventId||!allowedSkills.includes(skill)||!allowedActivities.includes(activity)||!title)return send(res,400,{error:'بيانات تقدم التعلّم غير مكتملة.'});const db=readJsonFile(learningProgressFile,{events:[]});if(!Array.isArray(db.events))db.events=[];if(db.events.some(e=>e.schoolId===ss.schoolId&&e.studentId===ss.member.id&&e.eventId===eventId))return send(res,200,{saved:true,duplicate:true});const scoreRaw=b.score===null||b.score===undefined||b.score===''?null:Number(b.score),correctCount=Math.max(0,Math.min(30,Number.isFinite(Number(b.correctCount))?Math.floor(Number(b.correctCount)):0)),totalQuestions=Math.max(0,Math.min(30,Number.isFinite(Number(b.totalQuestions))?Math.floor(Number(b.totalQuestions)):0));const event={eventId,schoolId:ss.schoolId,studentId:ss.member.id,studentName:ss.member.name,grade:String(ss.member.grade||''),section:String(ss.member.section||''),skill,activity,title,correct:!!b.correct,completed:!!b.completed,score:scoreRaw!==null&&Number.isFinite(scoreRaw)?Math.max(0,Math.min(100,scoreRaw)):null,correctCount,totalQuestions,at:new Date().toISOString()};db.events.push(event);if(db.events.length>100000)db.events=db.events.slice(-100000);saveJsonFile(learningProgressFile,db);audit(ss.member.email,'learning.progress.record',{schoolId:ss.schoolId,activity,skill,completed:event.completed,correct:event.correct});return send(res,201,{saved:true,event:{eventId,activity,skill,title,correct:event.correct,completed:event.completed,score:event.score,at:event.at}});}catch(e){return send(res,e.status||400,{error:e.message||'تعذّر حفظ تقدم التعلّم.'});}}
-  if(req.method==='GET'&&pathname==='/api/school-admin/learning-progress'){const ss=requireSchoolAdmin(req,res);if(!ss)return;const members=readSchoolMembers().members.filter(m=>m.schoolId===ss.schoolId&&m.role==='student'&&m.active&&m.status==='approved'),byId=new Map(members.map(m=>[m.id,m])),events=(readJsonFile(learningProgressFile,{events:[]}).events||[]).filter(e=>e.schoolId===ss.schoolId&&byId.has(e.studentId)),groups={};for(const e of events){const k=[e.studentId,e.activity,e.skill,e.title].join('|'),z=groups[k]??={studentId:e.studentId,studentName:byId.get(e.studentId).name,studentGrade:byId.get(e.studentId).grade||'',studentSection:byId.get(e.studentId).section||'',title:e.title,subject:e.skill,status:'in_progress',attempts:0,score:null,updatedAt:e.at};z.attempts++;if(e.completed){z.status='completed';if(Number.isFinite(Number(e.score)))z.score=Number(e.score);}if(String(e.at)>String(z.updatedAt))z.updatedAt=e.at;}const records=Object.values(groups).sort((a,b)=>String(b.updatedAt).localeCompare(String(a.updatedAt)));return send(res,200,{summary:{students:new Set(records.map(x=>x.studentId)).size,completed:records.filter(x=>x.status==='completed').length,started:records.length},records});}
   // Guardian requests are deliberately reviewed by the school before any student data is exposed.
   if(req.method==='POST'&&pathname==='/api/parent/guardian-links/request'){
     const limit=rateLimit(req,'guardian-link-request',8);if(!limit.allowed){res.setHeader('Retry-After',String(limit.retryAfter));return send(res,429,{error:'أرسلت طلبات ربط كثيرة. انتظر قليلًا ثم حاول مجددًا.'});}
@@ -474,7 +540,7 @@ const server = http.createServer(async (req,res)=>{
     const session=sessionParent(req);if(!session)return send(res,401,{error:'سجّل الدخول بحساب ولي الأمر أولًا.'});
     const links=readGuardianLinks().links.filter(x=>x.accountId===session.accountId);const schools=readSchools().schools;const members=readSchoolMembers().members;const posts=readSchoolPosts().posts;const subs=readSchoolSubmissions().submissions;
     const result=links.map(l=>{const school=schools.find(x=>x.id===l.schoolId);const student=l.status==='approved'?members.find(m=>m.id===l.studentId&&m.schoolId===l.schoolId&&m.role==='student'&&m.active&&m.status==='approved'):null;let assignments=[];if(student){const targeted=posts.filter(p=>p.schoolId===l.schoolId&&p.status==='published'&&p.type==='assignment'&&(!p.grade||p.grade===student.grade)&&(!p.section||p.section===student.section));assignments=targeted.map(p=>{const sub=subs.find(x=>x.schoolId===l.schoolId&&x.postId===p.id&&x.studentId===student.id);return {id:p.id,title:p.title,subject:p.subject||'',dueAt:p.dueAt||'',status:sub?.status||'not_submitted',score:sub?.status==='graded'?sub.score:null,feedback:sub?.status==='graded'?sub.feedback:'',submittedAt:sub?.submittedAt||sub?.updatedAt||null};});}
-      const learningEvents=student?(readJsonFile(learningProgressFile,{events:[]}).events||[]).filter(x=>x.schoolId===l.schoolId&&x.studentId===student.id):[];const learningMap={};for(const e of learningEvents){const k=String(e.activity)+'|'+String(e.skill)+'|'+String(e.title);const z=learningMap[k]??={title:e.title,subject:e.skill,status:'in_progress',score:null,correct:0,total:0,attempts:0,updatedAt:e.at};z.attempts++;if(e.correct)z.correct++;if(e.completed){z.status='completed';if(Number.isFinite(Number(e.score)))z.score=Number(e.score);z.total=Number(e.totalQuestions)||z.total;z.correct=Number(e.correctCount)||z.correct;}if(String(e.at)>String(z.updatedAt))z.updatedAt=e.at;}const learningProgress=Object.values(learningMap).sort((a,b)=>String(b.updatedAt).localeCompare(String(a.updatedAt)));const subjectMap={};for(const a of assignments){const subject=a.subject||'غير مصنّف';(subjectMap[subject]??={subject,total:0,submitted:0,graded:0,scores:[]});const z=subjectMap[subject];z.total++;if(a.status!=='not_submitted')z.submitted++;if(a.status==='graded'&&Number.isFinite(Number(a.score))){z.graded++;z.scores.push(Number(a.score));}}const progress=Object.values(subjectMap).map(z=>({subject:z.subject,total:z.total,submitted:z.submitted,graded:z.graded,average:z.scores.length?Math.round(z.scores.reduce((a,b)=>a+b,0)/z.scores.length*10)/10:null}));return {id:l.id,schoolId:l.schoolId,schoolName:school?.name||'مدرسة غير متاحة',studentEmail:l.studentEmail,relationship:l.relationship,status:l.status,requestedAt:l.requestedAt,reviewedAt:l.reviewedAt,student:student?{id:student.id,name:student.name,grade:student.grade,section:student.section}:null,assignments,progress,learningProgress};});return send(res,200,{links:result});
+      const subjectMap={};for(const a of assignments){const subject=a.subject||'غير مصنّف';(subjectMap[subject]??={subject,total:0,submitted:0,graded:0,scores:[]});const z=subjectMap[subject];z.total++;if(a.status!=='not_submitted')z.submitted++;if(a.status==='graded'&&Number.isFinite(Number(a.score))){z.graded++;z.scores.push(Number(a.score));}}const progress=Object.values(subjectMap).map(z=>({subject:z.subject,total:z.total,submitted:z.submitted,graded:z.graded,average:z.scores.length?Math.round(z.scores.reduce((a,b)=>a+b,0)/z.scores.length*10)/10:null}));return {id:l.id,schoolId:l.schoolId,schoolName:school?.name||'مدرسة غير متاحة',studentEmail:l.studentEmail,relationship:l.relationship,status:l.status,requestedAt:l.requestedAt,reviewedAt:l.reviewedAt,student:student?{id:student.id,name:student.name,grade:student.grade,section:student.section}:null,assignments,progress};});return send(res,200,{links:result});
   }
   if(req.method==='GET'&&pathname==='/api/school-admin/guardian-links'){
     const ss=requireSchoolAdmin(req,res);if(!ss)return;const links=readGuardianLinks().links.filter(x=>x.schoolId===ss.schoolId);const accounts=readAccounts().accounts;const members=readSchoolMembers().members;return send(res,200,{links:links.map(l=>({id:l.id,studentEmail:l.studentEmail,relationship:l.relationship,status:l.status,requestedAt:l.requestedAt,reviewedAt:l.reviewedAt,parentEmail:accounts.find(a=>a.id===l.accountId)?.email||'حساب ولي أمر',studentName:members.find(m=>m.id===l.studentId)?.name||''}))});
@@ -492,7 +558,7 @@ const server = http.createServer(async (req,res)=>{
   if(req.method==='GET'&&pathname==='/api/teacher/me'){const ss=sessionTeacher(req);if(!ss)return send(res,200,{authenticated:false});const t=readTeachers().teachers.find(x=>x.id===ss.teacherId&&x.active);return send(res,200,{authenticated:!!t,name:t?.name,email:t?.email,role:t?'teacher':null});}
   if(req.method==='POST'&&pathname==='/api/teacher/logout'){const ss=sessionTeacher(req);if(ss){teacherSessions.delete(ss.token);saveTeacherSessions();}teacherCookie(res,'',0);return send(res,200,{authenticated:false});}
   if(req.method==='GET'&&pathname==='/api/teacher/drafts'){const ss=requireTeacher(req,res);if(!ss)return;const d=readData();return send(res,200,{lessons:d.lessons.filter(l=>l.createdBy===ss.teacherId).map(({id,title,subject,grade,status,createdAt})=>({id,title,subject,grade,status,createdAt}))});}
-  if(req.method==='POST'&&pathname==='/api/teacher/drafts'){const ss=requireTeacher(req,res);if(!ss)return;try{const b=await readBody(req,20000),title=String(b.title||'').trim(),content=String(b.content||'').trim();if(!title||!content)return send(res,400,{error:'عنوان الدرس وشرحه مطلوبان.'});const d=readData();const lesson={id:crypto.randomUUID(),createdAt:new Date().toISOString(),createdBy:ss.teacherId,createdByRole:'teacher',title:title.slice(0,180),content:content.slice(0,12000),grade:String(b.grade||'').slice(0,80),subject:String(b.subject||'').slice(0,80),status:'draft',reviewRequired:true};d.lessons.unshift(lesson);fs.writeFileSync(dataFile,JSON.stringify(d,null,2),{mode:0o600});audit(ss.email,'lesson.draft.create',{id:lesson.id,title:lesson.title});return send(res,201,{id:lesson.id,status:'draft',message:'حُفظ الدرس كمسودة تنتظر مراجعة المدير.'});}catch(e){return send(res,e.status||400,{error:e.message||'تعذّر حفظ المسودة.'});}}
+  if(req.method==='POST'&&pathname==='/api/teacher/drafts'){const ss=requireTeacher(req,res);if(!ss)return;try{const b=await readBody(req,20000),title=String(b.title||'').trim(),content=String(b.content||'').trim();if(!title||!content)return send(res,400,{error:'عنوان الدرس وشرحه مطلوبان.'});const d=readData();const lesson={id:crypto.randomUUID(),createdAt:new Date().toISOString(),createdBy:ss.teacherId,createdByRole:'teacher',title:title.slice(0,180),content:content.slice(0,12000),grade:String(b.grade||'').slice(0,80),subject:String(b.subject||'').slice(0,80),status:'draft',reviewRequired:true};d.lessons.unshift(lesson);writeFileAtomic(dataFile,JSON.stringify(d,null,2),{mode:0o600});audit(ss.email,'lesson.draft.create',{id:lesson.id,title:lesson.title});return send(res,201,{id:lesson.id,status:'draft',message:'حُفظ الدرس كمسودة تنتظر مراجعة المدير.'});}catch(e){return send(res,e.status||400,{error:e.message||'تعذّر حفظ المسودة.'});}}
   if(req.method==='POST' && pathname==='/api/parent/login'){const r=rateLimit(req,'login',LOGIN_LIMIT);if(!r.allowed){res.setHeader('Retry-After',String(r.retryAfter));return send(res,429,{error:'محاولات تسجيل الدخول كثيرة. انتظر قليلًا ثم حاول مجددًا.'});}}
   if(pathname==='/api/parent/register'&&req.method==='POST'){const r=rateLimit(req,'register',REGISTER_LIMIT);if(!r.allowed){res.setHeader('Retry-After',String(r.retryAfter));return send(res,429,{error:'طلبات إنشاء الحساب كثيرة. انتظر قليلًا ثم حاول مجددًا.'});}}
   if(req.method==='POST' && pathname==='/api/parent/register'){
@@ -508,18 +574,7 @@ const server = http.createServer(async (req,res)=>{
     try{const b=await readBody(req,200000);if(!Array.isArray(b.profiles)||b.profiles.length<1||b.profiles.length>8)return send(res,400,{error:'يجب إرسال ملف طفل واحد على الأقل وبحد أقصى 8 ملفات.'});const profiles=b.profiles.map(p=>({id:String(p.id||'').slice(0,100),name:String(p.name||'الطفل').trim().slice(0,40)||'الطفل',progress:{completed:Array.isArray(p.progress?.completed)?p.progress.completed.map(x=>String(x).slice(0,120)).slice(0,500):[],attempts:Math.max(0,Math.min(100000,Number(p.progress?.attempts)||0)),correct:Math.max(0,Math.min(100000,Number(p.progress?.correct)||0)),name:String(p.progress?.name||'').slice(0,40),lessonStats:p.progress?.lessonStats&&typeof p.progress.lessonStats==='object'?Object.fromEntries(Object.entries(p.progress.lessonStats).slice(0,500).map(([k,v])=>[String(k).slice(0,120),{title:String(v.title||'درس').slice(0,180),attempts:Math.max(0,Number(v.attempts)||0),correct:Math.max(0,Number(v.correct)||0),wrong:Math.max(0,Number(v.wrong)||0),lastAttempt:typeof v.lastAttempt==='string'?v.lastAttempt.slice(0,40):null,lastCorrect:typeof v.lastCorrect==='boolean'?v.lastCorrect:null}])):{},answerHistory:Array.isArray(p.progress?.answerHistory)?p.progress.answerHistory.slice(0,100).map(a=>({id:String(a.id||'').slice(0,100),lessonId:String(a.lessonId||'').slice(0,120),lessonTitle:String(a.lessonTitle||'درس').slice(0,180),question:String(a.question||'').slice(0,500),chosen:String(a.chosen||'').slice(0,250),expected:String(a.expected||'').slice(0,250),correct:!!a.correct,at:typeof a.at==='string'?a.at.slice(0,40):null})):[]}}));if(profiles.some(p=>!p.id))return send(res,400,{error:'أحد ملفات الأطفال لا يحتوي على معرّف صالح.'});const db=readAccounts();const a=db.accounts.find(x=>x.id===session.accountId);if(!a)return send(res,401,{error:'انتهت الجلسة. سجّل الدخول مجددًا.'});a.profiles=profiles;a.updatedAt=new Date().toISOString();saveAccounts(db);return send(res,200,{saved:true,profiles:a.profiles});}catch(e){return send(res,e.status||400,{error:e.message||'تعذّر حفظ الملفات.'});}
   }
   if(req.method==='GET'&&pathname==='/api/admin/teacher-drafts'){if(!requireAdmin(req,res))return;const d=readData();return send(res,200,{lessons:d.lessons.filter(l=>l.createdByRole==='teacher').map(l=>({...l,createdByName:readTeachers().teachers.find(t=>t.id===l.createdBy)?.name||'معلّم'}))});}
-  if(req.method==='POST'&&pathname==='/api/admin/teacher-drafts/review'){if(!requireAdmin(req,res))return;try{const b=await readBody(req,3000),d=readData(),l=d.lessons.find(x=>x.id===String(b.id||'')&&x.createdByRole==='teacher');if(!l)return send(res,404,{error:'مسودة المعلم غير موجودة.'});if(b.action==='approve'){l.status='approved';l.reviewRequired=false;l.reviewedAt=new Date().toISOString();}else if(b.action==='reject'){l.status='rejected';l.reviewRequired=true;}else return send(res,400,{error:'الإجراء غير معروف.'});fs.writeFileSync(dataFile,JSON.stringify(d,null,2),{mode:0o600});audit(String(process.env.ADMIN_EMAIL||'admin'),'teacher.lesson.review',{id:l.id,action:b.action,title:l.title});return send(res,200,{id:l.id,status:l.status});}catch(e){return send(res,400,{error:'تعذّرت مراجعة المسودة.'});}}
-  if(req.method==='POST' && pathname.startsWith('/api/admin/content/books/') && pathname.endsWith('/analyze-visual')){
-    if(!requireAdmin(req,res))return;
-    const id=pathname.slice('/api/admin/content/books/'.length).replace(/\/analyze-visual$/,'').replace(/[^a-zA-Z0-9_-]/g,'');
-    const book=readData().books.find(b=>b.id===id&&b.pdfUploaded===true&&b.fileName);
-    if(!book)return send(res,404,{error:'لم نعثر على ملف PDF لهذا الكتاب.'});
-    if(!process.env.AI_API_KEY)return send(res,503,{error:'فعّل AI_API_KEY وخدمة تدعم تحليل الصور أولًا.'});
-    if(book.visualStatus==='processing')return send(res,409,{error:'تحليل هذا الكتاب جارٍ بالفعل.',visualPagesAnalyzed:book.visualPagesAnalyzed||0,visualTotalPages:book.pages||0});
-    saveBookVisualProgress(id,{visualStatus:'processing',visualWarning:'',visualTotalPages:Number(book.pages)||0});
-    setImmediate(()=>analyzeBookVisuals(id));
-    return send(res,202,{accepted:true,bookId:id,visualStatus:'processing',message:'بدأ تحليل كل صفحات الكتاب بما فيها الرسوم والجداول والخرائط والأشكال التعليمية. يمكنك متابعة التقدم من لوحة الإدارة.'});
-  }
+  if(req.method==='POST'&&pathname==='/api/admin/teacher-drafts/review'){if(!requireAdmin(req,res))return;try{const b=await readBody(req,3000),d=readData(),l=d.lessons.find(x=>x.id===String(b.id||'')&&x.createdByRole==='teacher');if(!l)return send(res,404,{error:'مسودة المعلم غير موجودة.'});if(b.action==='approve'){l.status='approved';l.reviewRequired=false;l.reviewedAt=new Date().toISOString();}else if(b.action==='reject'){l.status='rejected';l.reviewRequired=true;}else return send(res,400,{error:'الإجراء غير معروف.'});writeFileAtomic(dataFile,JSON.stringify(d,null,2),{mode:0o600});audit(String(process.env.ADMIN_EMAIL||'admin'),'teacher.lesson.review',{id:l.id,action:b.action,title:l.title});return send(res,200,{id:l.id,status:l.status});}catch(e){return send(res,400,{error:'تعذّرت مراجعة المسودة.'});}}
   if(req.method==='DELETE' && pathname.startsWith('/api/admin/content/books/')){
     if(!requireAdmin(req,res))return;
     const id=pathname.slice('/api/admin/content/books/'.length).replace(/[^a-zA-Z0-9_-]/g,'');
@@ -531,13 +586,13 @@ const server = http.createServer(async (req,res)=>{
     db.lessons=(db.lessons||[]).filter(l=>l.sourceBookId!==id);
     db.units=(db.units||[]).filter(u=>u.bookId!==id);
     db.plans=(db.plans||[]).filter(p=>p.bookId!==id);
-    fs.writeFileSync(dataFile,JSON.stringify(db,null,2),{mode:0o600});
+    writeFileAtomic(dataFile,JSON.stringify(db,null,2),{mode:0o600});
     if(book.fileName){const file=path.join(uploadDir,path.basename(book.fileName));try{if(fs.existsSync(file))fs.unlinkSync(file)}catch(e){console.error('Could not remove deleted curriculum PDF:',e.message)}}
     audit(String(process.env.ADMIN_EMAIL||'admin'),'curriculum.delete',{bookId:id,title:book.title,removedLessons:removedLessonIds.size});
     return send(res,200,{deleted:true,bookId:id});
   }
-  if(req.method==='GET' && pathname==='/api/admin/content'){if(!requireAdmin(req,res))return;const d=readData();d.books=(d.books||[]).map(({visualPages,...b})=>({...b,visualPagesCount:Array.isArray(visualPages)?visualPages.length:0}));return send(res,200,d);}
-  if(req.method==='GET' && pathname==='/api/content'){const db=readData();db.books=(db.books||[]).map(({extractedText,visualPages,...b})=>({...b,visualPagesCount:Array.isArray(visualPages)?visualPages.length:0}));db.lessons=(db.lessons||[]).filter(l=>l.createdByRole!=='teacher'||l.status==='approved').filter(l=>!l.sourceBookId||l.status==='approved').map(l=>({...l,quizQuestions:(l.quizQuestions||[]).filter(q=>q.status==='approved')}));db.units=(db.units||[]).filter(u=>u.status==='approved');return send(res,200,db);}
+  if(req.method==='GET' && pathname==='/api/admin/content'){if(!requireAdmin(req,res))return;return send(res,200,readData());}
+  if(req.method==='GET' && pathname==='/api/content'){const db=readData();db.books=(db.books||[]).map(({extractedText,...b})=>b);db.lessons=(db.lessons||[]).filter(l=>l.createdByRole!=='teacher'||l.status==='approved').filter(l=>!l.sourceBookId||l.status==='approved').map(l=>({...l,quizQuestions:(l.quizQuestions||[]).filter(q=>q.status==='approved')}));db.units=(db.units||[]).filter(u=>u.status==='approved');return send(res,200,db);}
   if(req.method==='POST' && pathname==='/api/curriculum/organize'){
     if(!requireAdmin(req,res))return;
     try{
@@ -564,7 +619,7 @@ const server = http.createServer(async (req,res)=>{
       db.units=(db.units||[]).filter(u=>u.bookId!==book.id).concat(units);
       db.lessons=(db.lessons||[]).filter(l=>l.sourceBookId!==book.id).concat(newLessons);
       book.units=units; book.organizedAt=new Date().toISOString(); book.outline=(Array.isArray(body.outline)?body.outline:[]).map((x,i)=>({id:'outline-'+i,title:String(typeof x==='string'?x:x.title||'').trim()})).filter(x=>x.title);
-      fs.writeFileSync(dataFile,JSON.stringify(db,null,2));
+      writeFileAtomic(dataFile,JSON.stringify(db,null,2));
       return send(res,200,{bookId:book.id,unitsCreated:units.length,lessonsCreated:newLessons.length,reviewRequired:true,message:'تم إنشاء مسودة تنظيمية. الوحدات والدروس لم تُنشر تلقائيًا؛ راجعها وصححها قبل اعتمادها.'});
     }catch(e){return send(res,e.status||400,{error:e.message||'تعذّر تنظيم محتوى الكتاب.'});}
   }
@@ -575,11 +630,12 @@ const server = http.createServer(async (req,res)=>{
       if(!lesson) return send(res,404,{error:'الدرس المرتبط بالمنهج غير موجود.'});
       if(String(lesson.content||'').trim().length<80) return send(res,422,{error:'محتوى الدرس قصير جدًا. أكمل الشرح وراجعه أولًا.'});
       if(!process.env.AI_API_KEY) return send(res,503,{error:'اقتراح الأسئلة الذكي يحتاج تفعيل خدمة الذكاء الاصطناعي في إعدادات الخادم (AI_API_KEY). يمكنك مراجعة الدرس أولًا ثم المحاولة بعد التفعيل.'});
-      const base=(process.env.AI_BASE_URL||'https://api.openai.com/v1').replace(/\/$/,''); const model=process.env.AI_MODEL||(aiProvider()==='gemini'?'gemini-2.5-flash':'gpt-4o-mini');
+      const base=(process.env.AI_BASE_URL||'https://api.openai.com/v1').replace(/\/$/,''); const model=process.env.AI_MODEL||'gpt-4o-mini';
       const prompt='أنت مساعد لإعداد اختبارات تعليمية للأطفال. أنشئ 3 أسئلة اختيار من متعدد باللغة العربية السهلة اعتمادًا حصريًا على نص الدرس أدناه. لكل سؤال 3 خيارات قصيرة، وإجابة صحيحة واحدة. لا تضف معلومات غير مذكورة في النص. أخرج JSON فقط بالشكل {"questions":[{"question":"...","answers":["...","...","..."],"correct":0}]} حيث correct فهرس الإجابة الصحيحة يبدأ من صفر. اجعل الأسئلة متنوعة ومناسبة لعمر الطفل. إذا لم يكف النص، أنشئ أسئلة مما ورد فقط. عنوان الدرس: '+lesson.title+'\nنص الدرس:\n'+String(lesson.content).slice(0,9000);
       const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),25000);
-      let raw=''; try { if(aiProvider()==='gemini'){raw=await generateGeminiContent({model,contents:[{role:'user',parts:[{text:prompt}]}],systemInstruction:'أخرج JSON صالحًا فقط دون markdown أو شرح إضافي.',generationConfig:{temperature:0.2,maxOutputTokens:900}});}else{const r=await fetch(base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+process.env.AI_API_KEY},body:JSON.stringify({model,messages:[{role:'system',content:'أخرج JSON صالحًا فقط دون markdown أو شرح إضافي.'},{role:'user',content:prompt}],temperature:0.2,max_tokens:900}),signal:controller.signal});const payload=await r.json().catch(()=>({}));if(!r.ok)throw Error('تعذّر الاتصال بخدمة الذكاء الاصطناعي. حاول لاحقًا.');raw=payload.choices?.[0]?.message?.content||'';}} finally {clearTimeout(timer)} if(typeof raw!=='string') throw Error('لم تصل أسئلة قابلة للقراءة. حاول مرة أخرى.'); raw=raw.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''); const parsed=JSON.parse(raw); const qs=(Array.isArray(parsed.questions)?parsed.questions:[]).slice(0,5).map(q=>({id:'q-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,6),question:String(q.question||'').trim().slice(0,500),answers:(Array.isArray(q.answers)?q.answers:[]).slice(0,3).map(a=>String(a).slice(0,250)),correct:Number(q.correct),status:'draft',reviewRequired:true})).filter(q=>q.question&&q.answers.length===3&&q.answers.every(Boolean)&&Number.isInteger(q.correct)&&q.correct>=0&&q.correct<3);
-      if(!qs.length) throw Error('لم تنتج الخدمة أسئلة صالحة. أعد المحاولة أو راجع محتوى الدرس.'); lesson.quizQuestions=qs; lesson.quizGeneratedAt=new Date().toISOString(); lesson.quizStatus='draft'; fs.writeFileSync(dataFile,JSON.stringify(db,null,2)); return send(res,200,{lessonId:id,questions:qs,reviewRequired:true,message:'تم اقتراح الأسئلة كمسودة فقط. راجع صياغة كل سؤال والإجابة الصحيحة قبل اعتمادها.'});
+      let payload; try { const r=await fetch(base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+process.env.AI_API_KEY},body:JSON.stringify({model,messages:[{role:'system',content:'أخرج JSON صالحًا فقط دون markdown أو شرح إضافي.'},{role:'user',content:prompt}],temperature:0.2,max_tokens:900}),signal:controller.signal}); payload=await r.json().catch(()=>({})); if(!r.ok) throw Error('تعذّر الاتصال بخدمة الذكاء الاصطناعي. حاول لاحقًا.'); } finally {clearTimeout(timer)}
+      let raw=payload.choices?.[0]?.message?.content; if(typeof raw!=='string') throw Error('لم تصل أسئلة قابلة للقراءة. حاول مرة أخرى.'); raw=raw.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''); const parsed=JSON.parse(raw); const qs=(Array.isArray(parsed.questions)?parsed.questions:[]).slice(0,5).map(q=>({id:'q-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,6),question:String(q.question||'').trim().slice(0,500),answers:(Array.isArray(q.answers)?q.answers:[]).slice(0,3).map(a=>String(a).slice(0,250)),correct:Number(q.correct),status:'draft',reviewRequired:true})).filter(q=>q.question&&q.answers.length===3&&q.answers.every(Boolean)&&Number.isInteger(q.correct)&&q.correct>=0&&q.correct<3);
+      if(!qs.length) throw Error('لم تنتج الخدمة أسئلة صالحة. أعد المحاولة أو راجع محتوى الدرس.'); lesson.quizQuestions=qs; lesson.quizGeneratedAt=new Date().toISOString(); lesson.quizStatus='draft'; writeFileAtomic(dataFile,JSON.stringify(db,null,2)); return send(res,200,{lessonId:id,questions:qs,reviewRequired:true,message:'تم اقتراح الأسئلة كمسودة فقط. راجع صياغة كل سؤال والإجابة الصحيحة قبل اعتمادها.'});
     }catch(e){return send(res,e.status||422,{error:e.name==='AbortError'?'تأخر توليد الأسئلة. حاول مرة أخرى.':e.message||'تعذّر توليد الأسئلة.'});}
   }
   if(req.method==='POST' && pathname.startsWith('/api/curriculum/lessons/') && pathname.endsWith('/review-quiz')){
@@ -590,12 +646,12 @@ const server = http.createServer(async (req,res)=>{
       const cleaned=qs.map(q=>({id:String(q.id||('q-'+Math.random().toString(36).slice(2,8))),question:String(q.question||'').trim().slice(0,500),answers:(Array.isArray(q.answers)?q.answers:[]).slice(0,3).map(a=>String(a).trim().slice(0,250)),correct:Number(q.correct)}));
       if(cleaned.some(q=>!q.question||q.answers.length!==3||q.answers.some(a=>!a)||!Number.isInteger(q.correct)||q.correct<0||q.correct>2))return send(res,400,{error:'كل سؤال يحتاج نصًا وثلاثة خيارات وإجابة صحيحة محددة.'});
       if(body.action==='approve'){lesson.quizQuestions=cleaned.map(q=>({...q,status:'approved',reviewRequired:false}));lesson.quizStatus='approved';lesson.quizReviewedAt=new Date().toISOString();}else if(body.action==='draft'){lesson.quizQuestions=cleaned.map(q=>({...q,status:'draft',reviewRequired:true}));lesson.quizStatus='draft';}else return send(res,400,{error:'الإجراء غير معروف.'});
-      fs.writeFileSync(dataFile,JSON.stringify(db,null,2)); return send(res,200,{id:lesson.id,quizStatus:lesson.quizStatus,questions:lesson.quizQuestions.length});
+      writeFileAtomic(dataFile,JSON.stringify(db,null,2)); return send(res,200,{id:lesson.id,quizStatus:lesson.quizStatus,questions:lesson.quizQuestions.length});
     }catch(e){return send(res,e.status||400,{error:e.message||'تعذّر حفظ الأسئلة.'});}
   }
   if(req.method==='POST' && pathname.startsWith('/api/curriculum/lessons/') && pathname.endsWith('/review')){
     if(!requireAdmin(req,res))return;
-    try{const id=pathname.split('/')[4];const body=await readBody(req,20000);const db=readData();const lesson=db.lessons.find(x=>x.id===id&&(x.sourceBookId||x.createdByRole==='teacher'));if(!lesson)return send(res,404,{error:'مسودة الدرس غير موجودة.'});if(body.action==='approve'){if(!String(body.title||lesson.title).trim()||!String(body.content||lesson.content).trim())return send(res,400,{error:'عنوان الدرس وشرحه مطلوبان.'});lesson.title=String(body.title||lesson.title).slice(0,180);lesson.content=String(body.content||lesson.content).slice(0,12000);lesson.status='approved';lesson.reviewRequired=false;lesson.reviewedAt=new Date().toISOString();}else if(body.action==='draft'){lesson.title=String(body.title||lesson.title).slice(0,180);lesson.content=String(body.content||lesson.content).slice(0,12000);lesson.status='draft';lesson.reviewRequired=true;}else return send(res,400,{error:'الإجراء غير معروف.'});fs.writeFileSync(dataFile,JSON.stringify(db,null,2));audit(String(process.env.ADMIN_EMAIL||'admin'),'lesson.review',{id:lesson.id,status:lesson.status});return send(res,200,{id:lesson.id,status:lesson.status});}catch(e){return send(res,e.status||400,{error:e.message||'تعذّر حفظ المراجعة.'});}
+    try{const id=pathname.split('/')[4];const body=await readBody(req,20000);const db=readData();const lesson=db.lessons.find(x=>x.id===id&&(x.sourceBookId||x.createdByRole==='teacher'));if(!lesson)return send(res,404,{error:'مسودة الدرس غير موجودة.'});if(body.action==='approve'){if(!String(body.title||lesson.title).trim()||!String(body.content||lesson.content).trim())return send(res,400,{error:'عنوان الدرس وشرحه مطلوبان.'});lesson.title=String(body.title||lesson.title).slice(0,180);lesson.content=String(body.content||lesson.content).slice(0,12000);lesson.status='approved';lesson.reviewRequired=false;lesson.reviewedAt=new Date().toISOString();}else if(body.action==='draft'){lesson.title=String(body.title||lesson.title).slice(0,180);lesson.content=String(body.content||lesson.content).slice(0,12000);lesson.status='draft';lesson.reviewRequired=true;}else return send(res,400,{error:'الإجراء غير معروف.'});writeFileAtomic(dataFile,JSON.stringify(db,null,2));audit(String(process.env.ADMIN_EMAIL||'admin'),'lesson.review',{id:lesson.id,status:lesson.status});return send(res,200,{id:lesson.id,status:lesson.status});}catch(e){return send(res,e.status||400,{error:e.message||'تعذّر حفظ المراجعة.'});}
   }
   if(req.method==='POST' && pathname==='/api/curriculum/upload'){
     if(!requireAdmin(req,res))return;
@@ -617,15 +673,15 @@ const server = http.createServer(async (req,res)=>{
       if(!title) return send(res,400,{error:'اختر المادة قبل رفع الكتاب.'});
       if(typeof pdfParse!=='function') return send(res,503,{error:'ميزة قراءة PDF غير جاهزة لأن مكتبات المشروع لم تُثبّت بعد. أعد تشغيل npm install ثم أعد المحاولة.'});
       const extraction=await extractPdfContent(buffer);
-      const {parsed,text:extracted,ocrUsed,ocrPages,ocrPartial}=extraction;
+      const {parsed,text:rawExtracted,ocrUsed,ocrPages,ocrPartial}=extraction; const extracted=learn.prepareBookText(rawExtracted).text;
       if(extracted.length<40) return send(res,422,{error:'لم نستطع استخراج نص مقروء من هذا الملف.'});
       const id=Date.now().toString(36)+Math.random().toString(36).slice(2,8);
       const filename=id+'.pdf'; savedPath=path.join(uploadDir,filename); fs.writeFileSync(savedPath,buffer,{flag:'wx'});
       const db=readData(); if(!Array.isArray(db.books)) db.books=[];
       const outline=inferOutline(extracted);
-      const book={id,createdAt:new Date().toISOString(),title,grade,subject,term,author,notes:[notes,ocrUsed?'تم استخراج النص باستخدام OCR؛ راجع النص قبل الاعتماد.':'تم استخراج النص من طبقة النص داخل PDF.'].filter(Boolean).join(' — '),fileName:filename,pages:Number(parsed.numpages)||0,extractedChars:extracted.length,outline,extractedText:extracted.slice(0,2500000),pdfUploaded:true,ocrUsed,ocrPages,visualPages:[],visualPagesAnalyzed:0,visualTotalPages:Number(parsed.numpages)||0,visualProgressPercent:0,visualStatus:process.env.AI_API_KEY?'processing':'unavailable',visualWarning:process.env.AI_API_KEY?'':'فعّل AI_API_KEY وخدمة تدعم الصور لتحليل الرسوم التعليمية.'};
-      db.books.unshift(book); fs.writeFileSync(dataFile,JSON.stringify(db,null,2)); audit(String(process.env.ADMIN_EMAIL||'admin'),'curriculum.upload',{bookId:id,title}); if(process.env.AI_API_KEY)setImmediate(()=>analyzeBookVisuals(id));
-      return send(res,201,{id,title,pages:book.pages,extractedChars:book.extractedChars,outlineCount:outline.length,outline,ocrUsed,ocrPages,visualStatus:book.visualStatus,visualPages:0,warning:(ocrUsed?'تم استخراج النص باستخدام OCR؛ راجع النتائج لاحتمال وجود أخطاء. ':'')+(ocrPartial?'تنبيه: تم فحص أول 100 صفحة فقط بالـ OCR. ':'')+(outline.length?'تم اقتراح عناوين أولية؛ راجعها يدويًا قبل اعتمادها.':'لم نتعرف على عناوين الوحدات تلقائيًا؛ راجع النص يدويًا.')+(process.env.AI_API_KEY?' بدأ تحليل الصور والرسوم في الخلفية لكل صفحات الكتاب.':' تحليل الصور غير متاح حتى تفعيل AI_API_KEY وخدمة الرؤية.')});
+      const book={id,createdAt:new Date().toISOString(),title,grade,subject,term,author,notes:[notes,ocrUsed?'تم استخراج النص باستخدام OCR؛ راجع النص قبل الاعتماد.':'تم استخراج النص من طبقة النص داخل PDF.'].filter(Boolean).join(' — '),fileName:filename,pages:Number(parsed.numpages)||0,extractedChars:extracted.length,outline,extractedText:extracted.slice(0,2500000),pdfUploaded:true,ocrUsed,ocrPages};
+      db.books.unshift(book); writeFileAtomic(dataFile,JSON.stringify(db,null,2)); audit(String(process.env.ADMIN_EMAIL||'admin'),'curriculum.upload',{bookId:id,title});
+      return send(res,201,{id,title,pages:book.pages,extractedChars:book.extractedChars,outlineCount:outline.length,outline,ocrUsed,ocrPages,warning:(ocrUsed?'تم استخراج النص باستخدام OCR؛ راجع النتائج لاحتمال وجود أخطاء. ':'')+(ocrPartial?'تنبيه: تم فحص أول 100 صفحة فقط بالـ OCR. ':'')+(outline.length?'تم اقتراح عناوين أولية؛ راجعها يدويًا قبل اعتمادها.':'لم نتعرف على عناوين الوحدات تلقائيًا؛ راجع النص يدويًا.')});
     }catch(e){if(savedPath&&fs.existsSync(savedPath))try{fs.unlinkSync(savedPath)}catch{};console.error('Curriculum PDF processing failed:',e.message);return send(res,e.status||422,{error:e.status===413?e.message:e.code==='OCR_UNAVAILABLE'||e.message==='PDF_TEXT_NOT_EXTRACTABLE'?e.message:'تعذّر قراءة ملف PDF. تأكد أنه غير تالف وحاول مرة أخرى.'});}
   }
   // Public read-only curriculum library: visitors may download published PDF books without admin login.
@@ -666,15 +722,17 @@ const server = http.createServer(async (req,res)=>{
     let languageList=[];if(tesseract.available){try{const r=await execFileAsync('tesseract',['--list-langs'],{timeout:5000,maxBuffer:200000});languageList=String(r.stdout||r.stderr).split(/\r?\n/).map(x=>x.trim()).filter(x=>x&&x!=='List of available languages:')}catch{}}
     return send(res,200,{pdfParser:{available:typeof pdfParse==='function',required:true},ocr:{available:poppler.available&&tesseract.available&&languageList.includes('ara')&&languageList.includes('eng'),poppler,tesseract,arabic:languageList.includes('ara'),english:languageList.includes('eng'),languages:languageList},storage:{dataDir,configured:!!process.env.DATA_DIR}});
   }
-  if(req.method==='GET' && pathname==='/api/teacher/status') return send(res,200,{configured:Boolean(process.env.AI_API_KEY),model:process.env.AI_MODEL||(aiProvider()==='gemini'?'gemini-2.5-flash':'gpt-4o-mini')});
+  if(pathname.startsWith('/api/learn/')) return handleLearn(req,res,pathname);
+  if(req.method==='GET' && pathname==='/api/teacher/status') return send(res,200,{configured:Boolean(process.env.AI_API_KEY),model:process.env.AI_MODEL||'gpt-4o-mini'});
   if(req.method==='POST' && pathname==='/api/teacher/ask'){
-    try{const body=await readBody(req,12000);const question=String(body.question||'').trim();if(!question)return send(res,400,{error:'اكتب سؤالك أولًا.'});if(question.length>2000)return send(res,413,{error:'اختصر السؤال قليلًا ثم أرسله.'});const bookId=String(body.bookId||'').trim();if(!bookId)return send(res,400,{error:'اختر كتابًا من مكتبة المناهج حتى تكون الإجابة مستندة إلى محتوى الكتاب.'});const curriculum=curriculumContext(question,bookId);if(!curriculum)return send(res,404,{error:'لم نجد نصًا مستخرجًا لهذا الكتاب. تأكد من رفعه ونجاح قراءة PDF أولًا.'});if(!curriculum.matched){let answer=curriculum.reason==='page-index-unavailable'?'الكتاب موجود، لكن النص المستخرج لا يحفظ أرقام الصفحات بدقة. افتح ملف PDF وحدد عنوان الدرس أو انسخ فقرة منه حتى لا أشرح صفحة خاطئة.':curriculum.reason==='text-quality-low'?'تم العثور على الكتاب، لكن النص المستخرج منه غير واضح أو غير مرتب بما يكفي لشرح موثوق. أعد رفع PDF بجودة أوضح، وإذا كان مصوّرًا فتأكد من تفعيل OCR العربي على الخادم.':curriculum.reason==='topic-not-found'?'لم أجد في النص المستخرج فقرة مرتبطة بهذا الطلب بدرجة كافية، لذلك لن أختار نصًا عشوائيًا من الكتاب. اكتب عنوان الدرس أو اطلب ملخصًا عامًا للكتاب.':'لم أتمكن من تحديد هذا الدرس داخل النص المستخرج من الكتاب. جرّب كتابة عنوان الدرس أو أعد رفع نسخة أوضح من PDF.';return send(res,200,{configured:Boolean(process.env.AI_API_KEY),grounded:true,matched:false,reason:curriculum.reason||'not-matched',bookTitle:curriculum.book.title,answer});}const quality=curriculumTextQuality(curriculum.excerpt);curriculum.visualContext=curriculum.visualContext||visualContextForQuestion(curriculum.book,question,curriculum.excerpt);if(!quality.ok&&!(curriculum.visualOnly&&curriculum.visualContext))return send(res,200,{configured:Boolean(process.env.AI_API_KEY),grounded:true,matched:false,reason:'text-quality-low',bookTitle:curriculum.book.title,answer:'تم العثور على الكتاب، لكن النص المستخرج من صفحاته غير واضح أو مختلط بعناصر أخرى، ولا تتوفر أوصاف بصرية مرتبطة بسؤالك. أعد رفع نسخة PDF أوضح أو حدد عنوان الدرس بدقة، وتأكد من تفعيل OCR باللغة العربية إذا كان الكتاب مصوّرًا.'});const result=await teacherAnswer(question,Array.isArray(body.history)?body.history:[],curriculum);return send(res,200,{...result,grounded:true,matched:true,bookTitle:curriculum.book.title,visualPagesAvailable:Array.isArray(curriculum.book.visualPages)?curriculum.book.visualPages.length:0,visualContextIncluded:Boolean(curriculum.visualContext)});}catch(e){return send(res,e.status||502,{error:e.message||'تعذّر الحصول على إجابة الآن.'});}
+    {const r=rateLimit(req,'teacher-ask',Number(process.env.ASK_LIMIT_PER_15MIN||60));if(!r.allowed){res.setHeader('Retry-After',String(r.retryAfter));return send(res,429,{error:'أسئلة كثيرة في وقت قصير. انتظر قليلًا ثم حاول مرة أخرى.'});}}
+    try{const body=await readBody(req,12000);const question=String(body.question||'').trim();if(!question)return send(res,400,{error:'اكتب سؤالك أولًا.'});if(question.length>2000)return send(res,413,{error:'اختصر السؤال قليلًا ثم أرسله.'});const bookId=String(body.bookId||'').trim();if(!bookId)return send(res,400,{error:'اختر كتابًا من مكتبة المناهج حتى تكون الإجابة مستندة إلى محتوى الكتاب.'});const curriculum=curriculumContext(question,bookId);if(!curriculum)return send(res,404,{error:'لم نجد نصًا مستخرجًا لهذا الكتاب. تأكد من رفعه ونجاح قراءة PDF أولًا.'});if(!curriculum.matched){let answer=curriculum.reason==='page-index-unavailable'?'الكتاب موجود، لكن النص المستخرج لا يحفظ أرقام الصفحات بدقة. افتح ملف PDF وحدد عنوان الدرس أو انسخ فقرة منه حتى لا أشرح صفحة خاطئة.':curriculum.reason==='text-quality-low'?'تم العثور على الكتاب، لكن النص المستخرج منه غير واضح أو غير مرتب بما يكفي لشرح موثوق. أعد رفع PDF بجودة أوضح، وإذا كان مصوّرًا فتأكد من تفعيل OCR العربي على الخادم.':curriculum.reason==='topic-not-found'?'لم أجد في النص المستخرج فقرة مرتبطة بهذا الطلب بدرجة كافية، لذلك لن أختار نصًا عشوائيًا من الكتاب. اكتب عنوان الدرس أو اطلب ملخصًا عامًا للكتاب.':'لم أتمكن من تحديد هذا الدرس داخل النص المستخرج من الكتاب. جرّب كتابة عنوان الدرس أو أعد رفع نسخة أوضح من PDF.';return send(res,200,{configured:Boolean(process.env.AI_API_KEY),grounded:true,matched:false,reason:curriculum.reason||'not-matched',bookTitle:curriculum.book.title,answer});}const quality=curriculumTextQuality(curriculum.excerpt);if(!quality.ok)return send(res,200,{configured:Boolean(process.env.AI_API_KEY),grounded:true,matched:false,reason:'text-quality-low',bookTitle:curriculum.book.title,answer:'تم العثور على الكتاب، لكن النص المستخرج من صفحاته غير واضح أو مختلط بعناصر أخرى، ولذلك لن أعرضه لك على أنه شرح صحيح. أعد رفع نسخة PDF أوضح، وتأكد من توفر OCR باللغة العربية إذا كان الكتاب مصوّرًا.'});const result=await teacherAnswer(question,Array.isArray(body.history)?body.history:[],curriculum);return send(res,200,{...result,grounded:true,matched:true,bookTitle:curriculum.book.title});}catch(e){return send(res,e.status||502,{error:e.message||'تعذّر الحصول على إجابة الآن.'});}
   }
   if(req.method==='POST' && ['/api/books','/api/plans','/api/lessons'].includes(pathname)){
     if(!requireAdmin(req,res))return;
-    try{const item=await readBody(req,100000);if(!item||typeof item!=='object')throw Error('bad');const db=readData();const key=pathname.split('/').pop();const allowed={books:['title','grade','subject','author','notes'],plans:['title','grade','subject','objectives','steps','materials','assessment'],lessons:['title','grade','subject','topic','content','question','answers','correct']}[key];const clean={id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),createdAt:new Date().toISOString()};for(const k of allowed)if(item[k]!==undefined)clean[k]=Array.isArray(item[k])?item[k].map(x=>String(x).slice(0,500)).slice(0,10):String(item[k]).slice(0,12000);if(!clean.title||!clean.title.trim())return send(res,400,{error:'العنوان مطلوب'});db[key].unshift(clean);fs.writeFileSync(dataFile,JSON.stringify(db,null,2));audit(String(process.env.ADMIN_EMAIL||'admin'),'content.create',{type:key,id:clean.id,title:clean.title});return send(res,201,clean);}catch(e){return send(res,e.status||400,{error:e.message==='bad'?'تعذّر قراءة البيانات':e.message||'تعذّر الحفظ'});}
+    try{const item=await readBody(req,100000);if(!item||typeof item!=='object')throw Error('bad');const db=readData();const key=pathname.split('/').pop();const allowed={books:['title','grade','subject','author','notes'],plans:['title','grade','subject','objectives','steps','materials','assessment'],lessons:['title','grade','subject','topic','content','question','answers','correct']}[key];const clean={id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),createdAt:new Date().toISOString()};for(const k of allowed)if(item[k]!==undefined)clean[k]=Array.isArray(item[k])?item[k].map(x=>String(x).slice(0,500)).slice(0,10):String(item[k]).slice(0,12000);if(!clean.title||!clean.title.trim())return send(res,400,{error:'العنوان مطلوب'});db[key].unshift(clean);writeFileAtomic(dataFile,JSON.stringify(db,null,2));audit(String(process.env.ADMIN_EMAIL||'admin'),'content.create',{type:key,id:clean.id,title:clean.title});return send(res,201,clean);}catch(e){return send(res,e.status||400,{error:e.message==='bad'?'تعذّر قراءة البيانات':e.message||'تعذّر الحفظ'});}
   }
-  let filePath=pathname==='/'?'/index.html':((pathname==='/admin'||pathname==='/admin/')?'/admin.html':((pathname==='/school-admin'||pathname==='/school-admin/')?'/school-admin.html':((pathname==='/school'||pathname==='/school/')?'/school.html':((pathname==='/student'||pathname==='/student/')?'/student.html':((pathname==='/teacher'||pathname==='/teacher/')?'/teacher.html':((pathname==='/guardian'||pathname==='/guardian/')?'/guardian.html':pathname))))));const file=path.resolve(root,'public','.'+filePath);const publicRoot=path.resolve(root,'public');if(!file.startsWith(publicRoot+path.sep)&&file!==publicRoot)return send(res,403,'Forbidden','text/plain');fs.readFile(file,(err,content)=>{if(err)return send(res,404,'Not found','text/plain; charset=utf-8');send(res,200,content,types[path.extname(file)]||'application/octet-stream');});
+  let filePath=pathname==='/'?'/index.html':((pathname==='/admin'||pathname==='/admin/')?'/admin.html':((pathname==='/school-admin'||pathname==='/school-admin/')?'/school-admin.html':((pathname==='/school'||pathname==='/school/')?'/school.html':((pathname==='/student/school'||pathname==='/student/school/')?'/student-school.html':((pathname==='/student'||pathname==='/student/')?'/student.html':((pathname==='/teacher'||pathname==='/teacher/')?'/teacher.html':((pathname==='/guardian'||pathname==='/guardian/')?'/guardian.html':pathname)))))));const file=path.resolve(root,'public','.'+filePath);const publicRoot=path.resolve(root,'public');if(!file.startsWith(publicRoot+path.sep)&&file!==publicRoot)return send(res,403,'Forbidden','text/plain');fs.readFile(file,(err,content)=>{if(err)return send(res,404,'Not found','text/plain; charset=utf-8');send(res,200,content,types[path.extname(file)]||'application/octet-stream');});
 });
 server.requestTimeout=15*60*1000; server.timeout=15*60*1000; server.headersTimeout=16*60*1000;
 async function seedTrainingBookOnce(){
@@ -685,13 +743,13 @@ async function seedTrainingBookOnce(){
   const source=path.join(root,'seed-books','التربية-الإسلامية-كتاب-تجريبي.pdf');
   if(!fs.existsSync(source))return;
   try{
-    const buffer=fs.readFileSync(source);const extraction=await extractPdfContent(buffer);const extracted=String(extraction.text||'');
+    const buffer=fs.readFileSync(source);const extraction=await extractPdfContent(buffer);const extracted=learn.prepareBookText(String(extraction.text||'')).text;
     if(extracted.length<100){console.warn('Training PDF found, but text extraction was too short; sample book not imported.');return;}
     const db=readData();db.books||=[];
     const id='sample-islamic-studies-v1';const filename=id+'.pdf';
     fs.copyFileSync(source,path.join(uploadDir,filename));
     db.books.unshift({id,createdAt:new Date().toISOString(),title:'التربية الإسلامية',grade:'الرابع الأساسي',subject:'التربية الإسلامية',term:'الترم الأول',author:'إعداد تدريبي لمنصة تعلّم مع الهيثم',notes:'كتاب تدريبي تجريبي من 6 صفحات، وليس كتابًا رسميًا. يمكن حذفه من لوحة الإدارة.',fileName:filename,pages:Number(extraction.parsed?.numpages)||6,extractedChars:extracted.length,outline:inferOutline(extracted),extractedText:extracted.slice(0,2500000),pdfUploaded:true,trainingSample:true,ocrUsed:!!extraction.ocrUsed,ocrPages:extraction.ocrPages||0});
-    fs.writeFileSync(dataFile,JSON.stringify(db,null,2),{mode:0o600});console.log('Imported optional six-page training curriculum book.');
+    writeFileAtomic(dataFile,JSON.stringify(db,null,2),{mode:0o600});console.log('Imported optional six-page training curriculum book.');
   }catch(e){console.warn('Training book import skipped:',e.message);}
 }
-const port=process.env.PORT||3000;seedTrainingBookOnce().finally(()=>server.listen(port,'0.0.0.0',()=>{console.log(`Taallam platform listening on ${port}; AI ${process.env.AI_API_KEY?'configured':'demo mode'}`);if(process.env.AI_API_KEY){for(const book of readData().books||[])if(book.pdfUploaded&&book.fileName&&book.visualStatus==='processing')setImmediate(()=>analyzeBookVisuals(book.id));}}));
+const port=process.env.PORT||3000;seedTrainingBookOnce().finally(()=>server.listen(port,'0.0.0.0',()=>console.log(`Taallam platform listening on ${port}; AI ${process.env.AI_API_KEY?'configured':'demo mode'}`)));
