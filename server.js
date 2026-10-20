@@ -205,16 +205,16 @@ function parseJsonLoose(raw){
   const a=s.indexOf('{'),b=s.lastIndexOf('}'); if(a>=0&&b>a){try{return JSON.parse(s.slice(a,b+1));}catch{}}
   return null;
 }
-const LEARN_BASE_RULES='أنت «الهيثم»، معلّم عربي لطيف يشرح لطلاب المدارس. اعتمد حصريًا على نص الكتاب المرفق، ولا تضف معلومات من خارجه، وإن لم يكفِ النص لشيء فقل ذلك بصراحة. لا تطلب أي بيانات شخصية. التزم بأدب ومحتوى مناسب للأطفال.';
+const LEARN_BASE_RULES='أنت «الهيثم»، معلّم عربي بارع ولطيف يشرح لطلاب المدارس. مهمتك أن تُفهِم الطالب درسه الموجود في نص الكتاب المرفق. لا تقرأ النص كما هو ولا تنقله جملة بجملة؛ بل اشرحه بأسلوبك كمعلّم يحدّث طلابه (مثل: «انظر يا صديقي ماذا قال النبي صلى الله عليه وسلم…»)، وبسّط الكلمات الصعبة، وأعطِ أمثلة من حياة الطالب. التزم بموضوع الكتاب ومعانيه: لا تغيّر المعنى ولا تضف أحكامًا أو معلومات جديدة غير موجودة في الكتاب، ويجوز فقط التوضيح والتمثيل المرتبط بالموضوع نفسه. إذا ذكرت النبي فاكتب «صلى الله عليه وسلم» كاملة ولا تستخدم الرموز المختصرة. في الفقرة الأخيرة اذكر النص الأصلي المهم من الكتاب (آية أو حديثًا أو تعريفًا أو قاعدة) بادئًا بعبارة «نص الكتاب:» ثم النص حرفيًا كما ورد في المقتطف دون أي تغيير. وإذا كان القسم مسألة أو قاعدة في الرياضيات أو العلوم فحلّها وفسّرها خطوة خطوة بأعداد وأمثلة محسوسة (كتفاحات نطرح منها أو نضيف إليها)، مع توضيح كل عملية قبل ذكر الناتج. لا تطلب أي بيانات شخصية، والتزم بمحتوى مناسب للأطفال.';
 function stageStyle(stage){return stage==='kids'
-  ?'الطالب في الصفوف الأولى من الابتدائية: استخدم جملًا قصيرة جدًا وكلمات سهلة، ومثالًا من حياة الطفل، وابدأ بترحيب قصير، وأنهِ بسؤال بسيط يشجّعه على التفكير. يمكنك استخدام رمز تعبيري واحد في بعض الفقرات فقط.'
-  :'الطالب يقرأ جيدًا: اشرح بوضوح وتنظيم مع أمثلة مناسبة، وابدأ بالفكرة العامة ثم التفاصيل، وأنهِ بخلاصة قصيرة.';}
+  ?'الطالب في الصفوف الأولى من الابتدائية: استخدم جملًا قصيرة جدًا وكلمات سهلة ومثالًا من حياة الطفل، وابدأ بترحيب قصير، واجعل في الشرح سؤالًا بسيطًا يشجّعه على التفكير. يمكنك استخدام رمز تعبيري واحد في بعض الفقرات فقط.'
+  :'الطالب يقرأ جيدًا: اشرح بوضوح وتنظيم مع أمثلة مناسبة، وابدأ بالفكرة العامة ثم التفاصيل، ثم اختم بخلاصة قصيرة قبل «نص الكتاب:».';}
 const FORMAT_RULE='اكتب نصًا عاديًا فقط دون رموز تنسيق (لا نجوم ولا # ولا قوائم مرقمة ولا جداول). قسّم الكلام إلى فقرات قصيرة يفصل بينها سطر فارغ، وكل فقرة من جملة إلى ثلاث جمل ليقرأها الطالب بصوت عالٍ.';
 const TEACH_TASKS={
-  explain:'اشرح القسم التالي شرحًا كاملًا مرتبًا في 5 إلى 8 فقرات.',
-  simple:'أعد شرح القسم التالي بطريقة أبسط بكثير مع مثال جديد، في 4 إلى 6 فقرات.',
-  summary:'لخّص القسم التالي في 4 إلى 6 فقرات قصيرة تذكر أهم الأفكار فقط.',
-  ask:'أجب عن سؤال الطالب مستندًا إلى القسم التالي في 2 إلى 4 فقرات قصيرة.'
+  explain:'اشرح القسم التالي شرحًا وافيًا ومبسّطًا كأنك تعلّمه لطلابك (لا تنقل النص): من 6 إلى 9 فقرات قصيرة، ثم فقرة أخيرة تبدأ بـ«نص الكتاب:».',
+  simple:'أعد شرح القسم التالي بطريقة أبسط بكثير وبمثال جديد: من 4 إلى 6 فقرات قصيرة، ثم فقرة أخيرة تبدأ بـ«نص الكتاب:».',
+  summary:'لخّص القسم التالي تلخيصًا شارحًا (لا تكتفِ بنقل الجمل): من 4 إلى 6 فقرات قصيرة تذكر الأفكار المهمة بأسلوب مفهوم، ثم فقرة أخيرة تبدأ بـ«نص الكتاب:».',
+  ask:'أجب عن سؤال الطالب مستندًا إلى القسم التالي في 2 إلى 4 فقرات قصيرة، وإن وُجد نص مهم يتعلق بالسؤال فاختم بفقرة تبدأ بـ«نص الكتاب:».'
 };
 function learnBook(bookId){
   const book=readData().books.find(b=>b.id===String(bookId||'')&&b.extractedText&&b.extractedText.length>100);
@@ -233,15 +233,40 @@ function splitSlides(answer,stage){
   const cleaned=learn.cleanForSpeech(answer).replace(/\n{3,}/g,'\n\n');
   let paras=cleaned.split(/\n{2,}/).map(s=>s.replace(/\n/g,' ').trim()).filter(Boolean);
   if(paras.length<2)paras=learn.slidesFromText(cleaned,8,stage==='kids'?160:240);
-  return paras.slice(0,10).map(s=>s.slice(0,600));
+  return paras.slice(0,12).map(s=>({t:s.slice(0,700),src:/^نص الكتاب\s*[:：]/.test(s)}));
+}
+const plainSlides=list=>list.map(s=>({t:s,src:false}));
+const ttsCache=new Map(); let ttsDay={d:'',n:0};
+function ttsConfigured(){return process.env.TTS_ENABLED!=='0'&&Boolean(process.env.TTS_API_KEY||process.env.AI_API_KEY);}
+async function handleSpeak(res,body){
+  if(!ttsConfigured())return send(res,503,{error:'الصوت السحابي غير مفعّل على الخادم.'});
+  const text=learn.cleanForSpeech(String(body.text||'')).slice(0,800);
+  if(text.length<2)return send(res,400,{error:'لا يوجد نص للقراءة.'});
+  const model=process.env.TTS_MODEL||'tts-1',voice=process.env.TTS_VOICE||'alloy';
+  const key=crypto.createHash('sha1').update(model+'|'+voice+'|'+text).digest('hex');
+  const hit=ttsCache.get(key);
+  if(hit){ttsCache.delete(key);ttsCache.set(key,hit);return send(res,200,hit.buf,hit.type);}
+  const day=new Date().toISOString().slice(0,10); if(ttsDay.d!==day)ttsDay={d:day,n:0};
+  if(ttsDay.n+text.length>Number(process.env.TTS_DAILY_CHARS||400000))return send(res,429,{error:'وصل الصوت السحابي إلى حدّه اليومي.'});
+  ttsDay.n+=text.length;
+  const base=(process.env.TTS_BASE_URL||process.env.AI_BASE_URL||'https://api.openai.com/v1').replace(/\/$/,'');
+  const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),25000);
+  try{
+    const r=await fetch(base+'/audio/speech',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+(process.env.TTS_API_KEY||process.env.AI_API_KEY)},body:JSON.stringify({model,voice,input:text,response_format:'mp3'}),signal:controller.signal});
+    if(!r.ok){console.error('TTS provider status',r.status);return send(res,502,{error:'تعذّر توليد الصوت الآن.'});}
+    const buf=Buffer.from(await r.arrayBuffer()); if(buf.length<100)return send(res,502,{error:'وصل صوت غير مكتمل.'});
+    const type=r.headers.get('content-type')||'audio/mpeg';
+    ttsCache.set(key,{buf,type}); if(ttsCache.size>300)ttsCache.delete(ttsCache.keys().next().value);
+    return send(res,200,buf,type);
+  }catch(e){return send(res,502,{error:e.name==='AbortError'?'تأخر توليد الصوت.':'تعذّر توليد الصوت الآن.'});}finally{clearTimeout(timer);}
 }
 async function handleLearn(req,res,pathname){
   try{
-    const limits={'/api/learn/teach':60,'/api/learn/quiz':30,'/api/learn/grade':150,'/api/learn/library':200,'/api/learn/outline':300,'/api/learn/status':300};
+    const limits={'/api/learn/speak':300,'/api/learn/teach':60,'/api/learn/quiz':30,'/api/learn/grade':150,'/api/learn/library':200,'/api/learn/outline':300,'/api/learn/status':300};
     if(!(pathname in limits))return send(res,404,{error:'غير موجود'});
     const rl=rateLimit(req,'learn:'+pathname,limits[pathname]);
     if(!rl.allowed){res.setHeader('Retry-After',String(rl.retryAfter));return send(res,429,{error:'طلبات كثيرة في وقت قصير. انتظر قليلًا ثم حاول مرة أخرى.'});}
-    if(req.method==='GET'&&pathname==='/api/learn/status')return send(res,200,{ai:Boolean(process.env.AI_API_KEY)});
+    if(req.method==='GET'&&pathname==='/api/learn/status')return send(res,200,{ai:Boolean(process.env.AI_API_KEY),tts:ttsConfigured()});
     if(req.method==='GET'&&pathname==='/api/learn/library'){
       const books=readData().books.filter(b=>b.extractedText&&b.extractedText.length>100).slice(0,100).map(b=>({id:b.id,title:String(b.title||'كتاب').slice(0,120),grade:b.grade||'',subject:b.subject||'',term:b.term||'',pages:b.pages||0}));
       return send(res,200,{books});
@@ -253,6 +278,7 @@ async function handleLearn(req,res,pathname){
     }
     if(req.method!=='POST')return send(res,405,{error:'طريقة غير مسموحة'});
     const body=await readBody(req,8000);
+    if(pathname==='/api/learn/speak')return handleSpeak(res,body);
     const stage=body.stage==='kids'?'kids':'reader';
     if(pathname==='/api/learn/teach'){
       const mode=Object.keys(TEACH_TASKS).includes(body.mode)?body.mode:'explain';
@@ -263,12 +289,12 @@ async function handleLearn(req,res,pathname){
       try{
         const sys=LEARN_BASE_RULES+'\n'+stageStyle(stage)+'\n'+FORMAT_RULE;
         const user=TEACH_TASKS[mode]+(mode==='ask'?'\nسؤال الطالب: '+String(body.question).slice(0,500):'')+'\n\nعنوان القسم: '+sec.title+'\nالكتاب: '+lb.book.title+' | الصف: '+(lb.book.grade||'غير محدد')+'\nنص الكتاب:\n'+sec.text;
-        const out=await aiChat([{role:'system',content:sys},{role:'user',content:user}],{temperature:0.35,max_tokens:stage==='kids'?900:1300});
+        const out=await aiChat([{role:'system',content:sys},{role:'user',content:user}],{temperature:0.4,max_tokens:stage==='kids'?1400:1900});
         slides=splitSlides(out,stage);
       }catch(e){
         if(e.code!=='NO_AI'&&e.status===429)throw e;
         configured=e.code!=='NO_AI'?true:false;
-        slides=mode==='summary'?learn.simpleSummary(sec.text,5):learn.slidesFromText(sec.text,8,stage==='kids'?160:240);
+        slides=plainSlides(mode==='summary'?learn.simpleSummary(sec.text,5):learn.slidesFromText(sec.text,8,stage==='kids'?160:240));
         notice=e.code==='NO_AI'?'هذا نص الكتاب نفسه، لأن المعلّم الذكي غير مفعّل على الخادم.':'تعذّر الشرح الذكي الآن، فهذا نص الكتاب نفسه. '+(e.message||'');
         console.error('learn/teach fallback:',e.message);
       }
