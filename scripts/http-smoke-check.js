@@ -35,11 +35,13 @@ function request(urlPath, options={}) {
     for(const [label,url] of [['public homepage','/'],['student portal','/student'],['teacher portal','/teacher'],['guardian portal','/guardian'],['school admin portal','/school-admin'],['school portal','/school'],['admin portal','/admin']]) {
       const r=await request(url); checks.push([label,r.status===200 && r.headers['content-type']?.includes('text/html')]);
     }
-    for(const [label,url,needle] of [['admin scoped service worker','/admin/sw.js','taallam-admin-shell-v2.74.0'],['school admin scoped service worker','/school-admin/sw.js','taallam-school-admin-shell-v2.74.0'],['admin manifest','/manifest-admin.webmanifest','/admin/'],['school admin manifest','/manifest-school-admin.webmanifest','/school-admin/']]) { const r=await request(url); checks.push([label,r.status===200 && r.body.includes(needle)]); }
+    for(const [label,url,needle] of [['admin scoped service worker','/admin/sw.js','taallam-admin-shell-v2.86.0'],['school admin scoped service worker','/school-admin/sw.js','taallam-school-admin-shell-v2.74.0'],['admin manifest','/manifest-admin.webmanifest','/admin/'],['school admin manifest','/manifest-school-admin.webmanifest','/school-admin/']]) { const r=await request(url); checks.push([label,r.status===200 && r.body.includes(needle)]); }
     const status=await request('/api/teacher/status'); checks.push(['teacher status API responds JSON',status.status===200 && JSON.parse(status.body).configured===false]);
     const askNoBook=await request('/api/teacher/ask',{method:'POST',headers:{'Content-Type':'application/json','Origin':`http://127.0.0.1:${port}`},body:JSON.stringify({question:'اشرح الدرس'})});
     checks.push(['teacher question requires selected curriculum book',askNoBook.status===400 && JSON.parse(askNoBook.body).error.includes('اختر كتابًا')]);
     const adminPdfStatus=await request('/api/admin/pdf-status'); checks.push(['PDF diagnostic rejects unauthenticated access',adminPdfStatus.status===401]);
+    const studentProgress=await request('/api/school-member/learning-progress'); checks.push(['learning progress is private to authenticated school students',studentProgress.status===401]);
+    const schoolProgress=await request('/api/school-admin/learning-progress'); checks.push(['school-wide learning progress requires school administrator login',schoolProgress.status===401]);
     const login=await request('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json','Origin':`http://127.0.0.1:${port}`},body:JSON.stringify({email:env.ADMIN_EMAIL,password:env.ADMIN_PASSWORD})});
     let cookie=''; if(login.status===200) cookie=String(login.headers['set-cookie']||'').split(';')[0];
     checks.push(['admin login accepts configured test credentials',login.status===200 && !!cookie]);
