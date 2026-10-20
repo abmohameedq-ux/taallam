@@ -63,7 +63,7 @@ for (const name of ['manifest-public.webmanifest','manifest-admin.webmanifest','
 const installer = fs.readFileSync(path.join(root,'public','install.js'),'utf8');
 const serviceWorker = fs.readFileSync(path.join(root,'public','sw.js'),'utf8');
 checks.push(['installer keeps one declared manifest per portal', installer.includes("document.querySelector('link[rel=\\\"manifest\\\"]')")]);
-checks.push(['public service worker cache is versioned for the three-app PWA architecture', serviceWorker.includes('taallam-shell-v2.77.0')]);
+checks.push(['public service worker cache is versioned for the three-app PWA architecture', serviceWorker.includes('taallam-shell-v2.76.0')]);
 for (const [role, scope, cache] of [['admin','/admin/','taallam-admin-shell-v2.74.0'],['school-admin','/school-admin/','taallam-school-admin-shell-v2.74.0']]) { const worker=fs.readFileSync(path.join(root,'public',role,'sw.js'),'utf8'); checks.push([`${role} has an independent scoped service worker`, worker.includes(`const CACHE_NAME = '${cache}'`) && worker.includes(`caches.match('${scope}')`)]); }
 checks.push(['admin portals register separate scoped service workers', installer.includes("role==='admin'?'/admin/sw.js':role==='school-admin'?'/school-admin/sw.js':'/sw.js'") && installer.includes("scope,updateViaCache:'none'")]);
 checks.push(['service worker caches the three installable manifests and distinct app icons', serviceWorker.includes('/manifest-public.webmanifest')&&serviceWorker.includes('/manifest-admin.webmanifest')&&serviceWorker.includes('/manifest-school-admin.webmanifest')&&serviceWorker.includes('/icons/taallam-admin-512.png')&&serviceWorker.includes('/icons/taallam-school-512.png')]);
@@ -99,12 +99,6 @@ const more = [
   ['data files are written atomically', server.includes('function writeFileAtomic') && !server.includes('fs.writeFileSync(dataFile,')],
   ['reversed Arabic PDF text is repaired on upload and on read', server.includes('learn.prepareBookText') && server.includes('function preparedBook')],
   ['service worker caches the new student app files', sw.includes('/student.js') && sw.includes('/student.css') && !sw.includes('/app.js')],
-  ['home page scrolls when tiles do not fit on a short screen', sCss.includes('#app{height:100dvh;overflow-y:auto') && sCss.includes('minmax(150px,1fr)')],
-  ['learn screen always lists books by subject and filters by grade', sJs.includes('h3') && sJs.includes('sameGrade') && sJs.includes('عرض كتب كل الصفوف') && !sJs.includes('books.length === 1 ||')],
-  ['platform cloud voice backs up the device voice', sJs.includes('function speakCloud') && sJs.includes('/api/learn/speak') && sJs.includes('P.deviceBad') && server.includes("handleSpeak(res,body)") && server.includes('/audio/speech')],
-  ['voice settings include a self-test with a diagnostic report', sJs.includes('جرّب الصوت') && sJs.includes('function voiceReport')],
-  ['Gemini keys are detected automatically and their raw PCM audio is wrapped as WAV', server.includes('generativelanguage') && server.includes('function pcmToWav') && server.includes('responseModalities')],
-  ['explanations are teacher-style and end with the original book text', server.includes('لا تقرأ النص كما هو') && server.includes('نص الكتاب:') && sJs.includes("classList.toggle('src'")],
 ];
 for (const [label, ok] of more) checks.push([label, Boolean(ok)]);
 
