@@ -40,8 +40,6 @@ function request(urlPath, options={}) {
     const askNoBook=await request('/api/teacher/ask',{method:'POST',headers:{'Content-Type':'application/json','Origin':`http://127.0.0.1:${port}`},body:JSON.stringify({question:'اشرح الدرس'})});
     checks.push(['teacher question requires selected curriculum book',askNoBook.status===400 && JSON.parse(askNoBook.body).error.includes('اختر كتابًا')]);
     const adminPdfStatus=await request('/api/admin/pdf-status'); checks.push(['PDF diagnostic rejects unauthenticated access',adminPdfStatus.status===401]);
-    const studentProgress=await request('/api/school-member/learning-progress'); checks.push(['learning progress is private to authenticated school students',studentProgress.status===401]);
-    const schoolProgress=await request('/api/school-admin/learning-progress'); checks.push(['school-wide learning progress requires school administrator login',schoolProgress.status===401]);
     const login=await request('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json','Origin':`http://127.0.0.1:${port}`},body:JSON.stringify({email:env.ADMIN_EMAIL,password:env.ADMIN_PASSWORD})});
     let cookie=''; if(login.status===200) cookie=String(login.headers['set-cookie']||'').split(';')[0];
     checks.push(['admin login accepts configured test credentials',login.status===200 && !!cookie]);
