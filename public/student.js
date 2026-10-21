@@ -312,6 +312,7 @@
     if (P.grade && !opts.showAll) { const f = books.filter(b => !b.grade || sameGrade(b.grade, P.grade)); if (f.length) { list = f; filtered = true; } }
     const groups = new Map(); for (const b of list) { const k = b.subject || 'كتب أخرى'; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(b); }
     const nodes = [el('p', { class: 'bubble center', text: groups.size > 1 ? 'ماذا تريد أن تذاكر؟ اختر الكتاب' : 'اختر الكتاب' })];
+    nodes.push(el('button', { class: 'big primary', type: 'button', onclick: () => { const allBook={id:'__all__',title:'كل الكتب',subject:'جميع المواد',grade:P.grade||''}; show('اسأل من كل الكتب', () => screenPick(allBook, purpose, {...opts, allBooks:true})); } }, el('span', {class:'em',text:'🌐'}), el('div', {}, 'كل الكتب', el('small', {text:'أسئلة متنوعة من جميع المواد والكتب المتاحة'}))));
     if (filtered) nodes.push(el('div', { class: 'hint', text: 'كتب ' + P.grade }));
     for (const [subject, arr] of groups) {
       if (groups.size > 1) nodes.push(el('h3', { class: 'sub', text: subjEm(subject) + ' ' + subject }));

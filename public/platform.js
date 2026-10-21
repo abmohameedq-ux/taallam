@@ -13,6 +13,23 @@
     return n;
   }
   let settings = null;
+  const FEEDBACK_QUEUE_KEY = 'taallam-feedback-queue-v1';
+  const readFeedbackQueue = () => { try { const value = JSON.parse(localStorage.getItem(FEEDBACK_QUEUE_KEY) || '[]'); return Array.isArray(value) ? value : []; } catch { return []; } };
+  const writeFeedbackQueue = items => { try { localStorage.setItem(FEEDBACK_QUEUE_KEY, JSON.stringify(items.slice(-50))); return true; } catch { return false; } };
+  async function syncFeedbackQueue() {
+    if (!navigator.onLine) return;
+    const queue = readFeedbackQueue(); if (!queue.length) return;
+    const remaining = [];
+    for (const item of queue) {
+      try { const r = await fetch('/api/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item), cache: 'no-store' });
+        if (!r.ok && r.status !== 409) { if (r.status >= 500 || r.status === 429) remaining.push(item); }
+      } catch { remaining.push(item); }
+    }
+    writeFeedbackQueue(remaining);
+    window.dispatchEvent(new CustomEvent('taallam:feedback-sync', { detail: { pending: remaining.length } }));
+  }
+  window.addEventListener('online', syncFeedbackQueue);
+  window.addEventListener('load', () => { syncFeedbackQueue(); });
   async function load() {
     try { const r = await fetch('/api/platform/settings', { cache: 'no-store' }); if (!r.ok) return null; settings = await r.json(); return settings; } catch { return null; }
   }
@@ -54,7 +71,9 @@
       s.dedicationText ? mk('blockquote', { text: s.dedicationText }) : null,
       (s.contactEmail || (s.phoneNumbers || []).length) ? mk('div', { class: 'about-links' }, s.contactEmail ? mk('a', { href: 'mailto:' + s.contactEmail, text: '✉️ ' + s.contactEmail }) : null, (s.phoneNumbers || []).map(p => mk('a', { href: 'tel:' + String(p).replace(/[^\d+]/g, ''), text: '📞 ' + p }))) : null,
       (s.socialLinks || []).length ? mk('div', { class: 'about-links' }, s.socialLinks.filter(x => https(x.url)).map(x => mk('a', { href: x.url, target: '_blank', rel: 'noopener', text: '🔗 ' + (x.label || x.url) }))) : null,
-      s.footerText ? mk('small', { class: 'about-foot', text: s.footerText }) : null);
+      s.footerText ? mk('small', { class: 'about-foot', text: s.footerText }) : null,
+      mk('hr', {}), mk('h3', { text: 'قيّم التطبيق وأرسل ملاحظتك' }),
+      (() => { const form=mk('form',{class:'feedback-form'}); let rating=5; const stars=mk('div',{class:'feedback-stars','aria-label':'تقييم التطبيق'}); const buttons=[]; const paint=()=>buttons.forEach((b,i)=>{b.textContent=i<rating?'★':'☆';b.setAttribute('aria-pressed',String(i<rating));}); for(let i=1;i<=5;i++){const b=mk('button',{type:'button','aria-label':`${i} نجوم`,onclick:()=>{rating=i;paint();}});buttons.push(b);stars.append(b);} paint(); const category=mk('select',{'aria-label':'سبب التقييم'},... [['suggestion','اقتراح'],['bug','مشكلة تقنية'],['content','محتوى تعليمي'],['excellent','التطبيق جميل جدًا'],['improvement','يحتاج إلى تحسين'],['other','أخرى']].map(([v,t])=>mk('option',{value:v,text:t}))); const email=mk('input',{type:'email',placeholder:'البريد الإلكتروني (اختياري)','aria-label':'البريد الإلكتروني اختياري'}); const comment=mk('textarea',{rows:'3',maxlength:'3000',placeholder:'اكتب رأيك أو اقتراحك (اختياري)','aria-label':'الملاحظة'}); const status=mk('p',{role:'status'}); const submit=mk('button',{type:'submit',class:'btn primary',text:'إرسال التقييم'}); form.append(stars,category,email,comment,submit,status); form.addEventListener('submit',async e=>{e.preventDefault();submit.disabled=true;status.textContent='جارٍ الإرسال…';const payload={submissionId:crypto.randomUUID(),rating,category:category.value,email:email.value,comment:comment.value};try{const r=await fetch('/api/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),cache:'no-store'});const d=await r.json();if(!r.ok)throw new Error(d.error||'تعذّر الإرسال');status.textContent=d.message||'شكرًا لك!';comment.value='';}catch(err){if(!navigator.onLine||err instanceof TypeError){const queue=readFeedbackQueue();if(queue.length>=50){status.textContent='قائمة الإرسال دون إنترنت ممتلئة. اتصل بالإنترنت ثم أعد المحاولة.';}else if(writeFeedbackQueue([...queue,payload])){status.textContent='لا يوجد اتصال. حُفظ تقييمك على هذا الجهاز وسيُرسل تلقائيًا عند عودة الإنترنت.';comment.value='';}else status.textContent='تعذّر الحفظ على هذا الجهاز. انسخ ملاحظتك قبل إغلاق الصفحة.';}else status.textContent=err.message||'تعذّر الإرسال. حاول مجددًا.';}finally{submit.disabled=false;}});return form; })());
     const ov = mk('div', { class: 'about', onclick: e => { if (e.target === ov) ov.remove(); } }, card); document.body.append(ov);
   }
   async function boot() {

@@ -142,3 +142,4 @@ button.itm:active{transform:scale(.9)}
 .about-card p{margin:0}.about-card blockquote{margin:0;padding:10px 12px;background:#fff8e6;border-inline-start:4px solid var(--gold);border-radius:10px}
 .about-links{display:flex;flex-wrap:wrap;gap:8px}.about-links a{padding:8px 12px;background:#fff;border:2px solid var(--line);border-radius:12px;color:var(--ink);text-decoration:none;font-weight:700}
 .about-foot{color:var(--muted)}
+.feedback-form{display:grid;gap:10px;margin-top:12px;text-align:right}.feedback-form input,.feedback-form select,.feedback-form textarea{width:100%;box-sizing:border-box;border:1px solid #ccd8e4;border-radius:10px;padding:10px;font:inherit;background:#fff;color:#17324d}.feedback-stars{display:flex;gap:8px;direction:ltr}.feedback-stars button{border:0;background:transparent;color:#e4a11b;font-size:30px;cursor:pointer;padding:2px 5px}.feedback-form button:disabled{opacity:.6;cursor:wait}
