@@ -63,7 +63,7 @@ for (const name of ['manifest-public.webmanifest','manifest-admin.webmanifest','
 const installer = fs.readFileSync(path.join(root,'public','install.js'),'utf8');
 const serviceWorker = fs.readFileSync(path.join(root,'public','sw.js'),'utf8');
 checks.push(['installer keeps one declared manifest per portal', installer.includes("document.querySelector('link[rel=\\\"manifest\\\"]')")]);
-checks.push(['public service worker cache is versioned for the three-app PWA architecture', serviceWorker.includes('taallam-shell-v2.77.0')]);
+checks.push(['public service worker cache is versioned for the three-app PWA architecture', serviceWorker.includes('taallam-shell-v2.78.0')]);
 for (const [role, scope, cache] of [['admin','/admin/','taallam-admin-shell-v2.74.0'],['school-admin','/school-admin/','taallam-school-admin-shell-v2.74.0']]) { const worker=fs.readFileSync(path.join(root,'public',role,'sw.js'),'utf8'); checks.push([`${role} has an independent scoped service worker`, worker.includes(`const CACHE_NAME = '${cache}'`) && worker.includes(`caches.match('${scope}')`)]); }
 checks.push(['admin portals register separate scoped service workers', installer.includes("role==='admin'?'/admin/sw.js':role==='school-admin'?'/school-admin/sw.js':'/sw.js'") && installer.includes("scope,updateViaCache:'none'")]);
 checks.push(['service worker caches the three installable manifests and distinct app icons', serviceWorker.includes('/manifest-public.webmanifest')&&serviceWorker.includes('/manifest-admin.webmanifest')&&serviceWorker.includes('/manifest-school-admin.webmanifest')&&serviceWorker.includes('/icons/taallam-admin-512.png')&&serviceWorker.includes('/icons/taallam-school-512.png')]);
@@ -81,6 +81,7 @@ const sHtml = fs.readFileSync(path.join(root, 'public', 'student.html'), 'utf8')
 const sCss = fs.readFileSync(path.join(root, 'public', 'student.css'), 'utf8');
 const hub = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
 const sw = fs.readFileSync(path.join(root, 'public', 'sw.js'), 'utf8');
+const platformJs = fs.readFileSync(path.join(root, 'public', 'platform.js'), 'utf8');
 const more = [
   ['hub is three big role buttons', ['/student', '/teacher', '/guardian'].every(h => hub.includes('href="' + h + '"')) && !hub.includes('<script src="/app.js">')],
   ['student app has no page scroll and a full-screen sheet navigation', sCss.includes('overflow:hidden') && sCss.includes('.sheet.open') && sHtml.includes('id="sheet"')],
@@ -104,6 +105,14 @@ const more = [
   ['platform cloud voice backs up the device voice', sJs.includes('function speakCloud') && sJs.includes('/api/learn/speak') && sJs.includes('P.deviceBad') && server.includes("handleSpeak(res,body)") && server.includes('/audio/speech')],
   ['voice settings include a self-test with a diagnostic report', sJs.includes('جرّب الصوت') && sJs.includes('function voiceReport')],
   ['Gemini keys are detected automatically and their raw PCM audio is wrapped as WAV', server.includes('generativelanguage') && server.includes('function pcmToWav') && server.includes('responseModalities')],
+  ['games give three attempts, gentle retries, praise and an offer to reveal the answer', sJs.includes('tries >= 3') && sJs.includes('هل تريد أن أجيبك أنا؟') && sJs.includes('RETRY_SAY') && sJs.includes('PRAISE_SAY')],
+  ['games include interactive tap-to-count and build-the-equation rounds with spoken counting', sJs.includes('function roundCount') && sJs.includes('function roundBuild') && sJs.includes('NUMW[r.a + moved]')],
+  ['lesson slides can be swiped (direction is a setting) and keyboard-navigated', sJs.includes('touchstart') && sJs.includes('touchend') && sJs.includes('اتجاه السحب')],
+  ['microphone joins several short phrases into one sentence', sJs.includes('Browsers stop listening after the first short pause') && sJs.includes('acc + \' \' + cur')],
+  ['quiz remembers asked questions and asks for different ones', sJs.includes('avoid:') && sJs.includes('P.asked') && server.includes('فلا تكررها')],
+  ['topic questions are answered directly; summary/simplify intent is detected', server.includes("mode='ask'") && server.includes("mode='summary'") && server.includes("mode='simple'")],
+  ['AI failures are explained (key, model name, quota) instead of silently showing the raw text', server.includes('AI_MODEL غير صحيح') || server.includes('اسم النموذج AI_MODEL') && server.includes('providerStatus')],
+  ['brand, news ticker, timed announcement and About page come from the platform settings', fs.existsSync(path.join(root, 'public', 'platform.js')) && platformJs.includes('/api/platform/settings') && platformJs.includes('REPEAT_EVERY_MS') && platformJs.includes('FIRST_SHOW_MS')],
   ['explanations are teacher-style and end with the original book text', server.includes('لا تقرأ النص كما هو') && server.includes('نص الكتاب:') && sJs.includes("classList.toggle('src'")],
 ];
 for (const [label, ok] of more) checks.push([label, Boolean(ok)]);

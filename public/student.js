@@ -193,28 +193,37 @@
   }
 
   // ---------- speech to text ----------
+  // Browsers stop listening after the first short pause, so we chain several short sessions and join them.
   let rec = null;
   function listen(btn, input, onFinal) {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { toast('هذا المتصفح لا يدعم الإدخال الصوتي. اكتب طلبك أو استخدم متصفح Chrome.'); return; }
-    if (rec) { try { rec.stop(); } catch {} return; }
+    if (rec) { rec.stop(); return; }
     stopSpeech();
-    const r = new SR(); rec = r; r.lang = P.dialect || 'ar-SA'; r.interimResults = true; r.continuous = false; r.maxAlternatives = 1;
-    let finalText = ''; btn.classList.add('live'); btn.setAttribute('aria-pressed', 'true');
-    r.onresult = e => { let t = ''; for (const res of e.results) { t += res[0].transcript; if (res.isFinal) finalText = t; } input.value = t; };
-    r.onerror = e => {
-      const m = { 'not-allowed': 'اسمح للمتصفح باستخدام الميكروفون ثم حاول مرة أخرى.', 'service-not-allowed': 'الميكروفون غير مسموح لهذا الموقع.', 'no-speech': 'لم أسمعك. اضغط الميكروفون وتحدّث بصوت أوضح.', 'audio-capture': 'لا يوجد ميكروفون في هذا الجهاز.', 'network': 'الإدخال الصوتي يحتاج اتصالًا بالإنترنت.', 'language-not-supported': 'هذه اللهجة غير مدعومة؛ غيّرها من الإعدادات.' };
-      toast(m[e.error] || 'تعذّر الإدخال الصوتي. اكتب طلبك.');
+    let acc = '', cur = '', stopped = false, finished = false, gotSpeech = false, r = null, silence = null; const t0 = Date.now();
+    const MSG = { 'not-allowed': 'اسمح للمتصفح باستخدام الميكروفون ثم حاول مرة أخرى.', 'service-not-allowed': 'الميكروفون غير مسموح لهذا الموقع.', 'audio-capture': 'لا يوجد ميكروفون في هذا الجهاز.', 'network': 'الإدخال الصوتي يحتاج اتصالًا بالإنترنت.', 'language-not-supported': 'هذه اللهجة غير مدعومة؛ غيّرها من الإعدادات.' };
+    const finish = () => {
+      if (finished) return; finished = true; clearTimeout(silence); btn.classList.remove('live'); btn.setAttribute('aria-pressed', 'false'); rec = null;
+      const t = (acc + ' ' + cur).trim().replace(/\s+/g, ' '); if (t) input.value = t; if (t && onFinal) onFinal(t);
     };
-    r.onend = () => { btn.classList.remove('live'); btn.setAttribute('aria-pressed', 'false'); rec = null; const t = (finalText || input.value).trim(); if (t && onFinal) onFinal(t); };
-    try { r.start(); } catch { btn.classList.remove('live'); rec = null; }
+    rec = { stop() { stopped = true; try { r && r.stop(); } catch {} setTimeout(finish, 400); } };
+    btn.classList.add('live'); btn.setAttribute('aria-pressed', 'true');
+    const start = () => {
+      r = new SR(); r.lang = P.dialect || 'ar-SA'; r.interimResults = true; r.continuous = false; r.maxAlternatives = 1; gotSpeech = false; cur = '';
+      clearTimeout(silence); silence = setTimeout(() => { if (!gotSpeech) { stopped = true; try { r.stop(); } catch {} } }, acc ? 1700 : 9000);
+      r.onresult = e => { clearTimeout(silence); let t = ''; for (const res of e.results) t += res[0].transcript + ' '; cur = t.trim(); gotSpeech = cur.length > 0; input.value = (acc + ' ' + cur).trim(); };
+      r.onerror = e => { if (e.error === 'no-speech' || e.error === 'aborted') return; stopped = true; toast(MSG[e.error] || 'تعذّر الإدخال الصوتي. اكتب طلبك.'); };
+      r.onend = () => { clearTimeout(silence); acc = (acc + ' ' + cur).trim(); cur = ''; if (!stopped && gotSpeech && Date.now() - t0 < 20000) setTimeout(() => { if (!stopped) start(); }, 150); else finish(); };
+      try { r.start(); } catch { finish(); }
+    };
+    start();
   }
 
   // ---------- sheet / navigation ----------
   const S = { nav: [], sid: 0, ctx: {} };
   const sheet = $('#sheet'), body = $('#sheetBody');
   function setTitle(t) { $('#sheetTitle').textContent = t; }
-  function setBody(...nodes) { stopSpeech(); if (rec) { try { rec.stop(); } catch {} } body.replaceChildren(...nodes.flat(Infinity).filter(Boolean)); body.scrollTop = 0; }
+  function setBody(...nodes) { S.keyHandler = null; stopSpeech(); if (rec) { try { rec.stop(); } catch {} } body.replaceChildren(...nodes.flat(Infinity).filter(Boolean)); body.scrollTop = 0; }
   function setTransient(...nodes) { setBody(...nodes); S.transient = true; }
   function show(title, render, replace) {
     S.transient = false;
@@ -230,7 +239,7 @@
     if (S.transient) { S.transient = false; const top = S.nav[S.nav.length - 1]; if (!top) return closeSheet(); S.sid++; setTitle(top.title); top.render(); return; }
     if (S.nav.length <= 1) return closeSheet(); S.nav.pop(); const top = S.nav[S.nav.length - 1]; S.sid++; setTitle(top.title); top.render(); }
   $('#sBack').addEventListener('click', back); $('#sClose').addEventListener('click', closeSheet);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && sheet.classList.contains('open')) closeSheet(); });
+  document.addEventListener('keydown', e => { if (!sheet.classList.contains('open')) return; if (e.key === 'Escape') closeSheet(); else if (S.keyHandler) S.keyHandler(e); });
   const loading = (msg) => el('div', { class: 'center', style: 'flex:1;display:flex;flex-direction:column;gap:10px' }, el('div', { class: 'owl', text: '🦉' }), el('p', { class: 'bubble', text: msg }), el('div', { class: 'hint', text: 'لحظة من فضلك…' }));
   const errorBox = (msg, retry) => el('div', { class: 'center', style: 'flex:1;display:flex;flex-direction:column;gap:12px' }, el('div', { class: 'owl', text: '😅' }), el('p', { class: 'bubble', text: msg }), retry ? el('button', { class: 'btn', text: 'حاول مرة أخرى', onclick: retry }) : null);
 
@@ -270,18 +279,19 @@
       const grade = el('select', { class: 'input', 'aria-label': 'صفي الدراسي' }, el('option', { value: '', text: 'كل الصفوف' }));
       getLib().then(bs => { const gs = [...new Set(bs.map(b => String(b.grade || '').trim()).filter(Boolean))]; if (P.grade && !gs.includes(P.grade)) gs.unshift(P.grade); gs.forEach(g => grade.append(el('option', { value: g, text: g }))); grade.value = P.grade || ''; }).catch(() => {});
       const vmode = el('select', { class: 'input', 'aria-label': 'نوع الصوت' }, ...[['auto', 'تلقائي (الأفضل)'], ['cloud', 'صوت المنصة (يعمل على كل الأجهزة)'], ['device', 'صوت الجهاز']].map(([v, t]) => el('option', { value: v, text: t, selected: (P.voiceMode || 'auto') === v })));
+      const swipe = el('select', { class: 'input', 'aria-label': 'اتجاه السحب' }, ...[['right', 'السحب لليمين = التالي'], ['left', 'السحب لليسار = التالي']].map(([v, t]) => el('option', { value: v, text: t, selected: (P.swipe || 'right') === v })));
       const diag = el('div', { class: 'notice', text: voiceReport() });
       const testBtn = el('button', { class: 'btn alt', type: 'button', text: '🔊 جرّب الصوت', onclick: () => { prime(); P.voiceMode = vmode.value; if (vmode.value !== 'cloud') P.deviceBad = false; diag.textContent = 'أحاول التشغيل…'; speak('مرحبًا، أنا الهيثم. هل تسمعني؟', [], { onEnd: () => { diag.textContent = '✅ تم تشغيل الصوت. ' + voiceReport(); }, onFail: why => { diag.textContent = '❌ فشل التشغيل (' + why + '). ' + voiceReport(); } }); setTimeout(() => { if (/أحاول/.test(diag.textContent)) diag.textContent = voiceReport(); }, 9000); } });
       const dialect = el('select', { class: 'input', 'aria-label': 'لهجة الصوت' }, ...[['ar-SA', 'السعودية / اليمن'], ['ar-EG', 'مصر'], ['ar-AE', 'الإمارات'], ['ar-JO', 'الأردن'], ['ar-MA', 'المغرب']].map(([v, t]) => el('option', { value: v, text: t, selected: P.dialect === v })));
       const sound = el('input', { type: 'checkbox', checked: P.sound, style: 'width:26px;height:26px' });
       const done = el('button', { class: 'btn', type: 'button', text: first ? 'هيا نبدأ 🚀' : 'حفظ', onclick: () => {
         if (!draft.stage) { toast('اختر: هل أنت في الصفوف الأولى أم تقرأ بنفسك؟'); return; }
-        P.stage = draft.stage; P.avatar = draft.avatar; P.name = name.value.trim().slice(0, 20); P.dialect = dialect.value; P.sound = sound.checked; if (grade.value !== (P.grade || '')) P.gradeManual = true; P.grade = grade.value; if (vmode.value !== (P.voiceMode || 'auto')) P.deviceBad = false; P.voiceMode = vmode.value; save(); pickVoice();
+        P.stage = draft.stage; P.avatar = draft.avatar; P.name = name.value.trim().slice(0, 20); P.dialect = dialect.value; P.sound = sound.checked; if (grade.value !== (P.grade || '')) P.gradeManual = true; P.grade = grade.value; if (vmode.value !== (P.voiceMode || 'auto')) P.deviceBad = false; P.voiceMode = vmode.value; P.swipe = swipe.value; save(); pickVoice();
         document.body.classList.toggle('kids', P.stage === 'kids'); buildHome(); renderHeader(); renderGreeting(); closeSheet(); if (first) toast('أهلًا ' + (P.name || 'يا صديقي') + '! اختر ما تحب 👇');
       } });
       setBody(el('p', { class: 'bubble center', text: 'أنا الهيثم 🦉 معلّمك الصديق. من أنت؟' }), ...stageBtns, name, el('div', { class: 'avatars' }, avs),
         el('label', { style: 'display:flex;flex-direction:column;gap:4px' }, el('span', { text: 'صفي الدراسي (لعرض كتبي فقط)' }), grade), el('label', { style: 'display:flex;flex-direction:column;gap:4px' }, el('span', { text: 'صوت القراءة' }), vmode), testBtn, diag,
-        el('label', { class: 'row', style: 'align-items:center' }, el('span', { text: 'لهجة التعرّف على كلامك' }), dialect), el('label', { class: 'row', style: 'align-items:center;justify-content:flex-start' }, sound, el('span', { text: 'أصوات المؤثرات' })),
+        el('label', { style: 'display:flex;flex-direction:column;gap:4px' }, el('span', { text: 'اتجاه السحب للانتقال للشريحة التالية' }), swipe), el('label', { class: 'row', style: 'align-items:center' }, el('span', { text: 'لهجة التعرّف على كلامك' }), dialect), el('label', { class: 'row', style: 'align-items:center;justify-content:flex-start' }, sound, el('span', { text: 'أصوات المؤثرات' })),
         done, !first ? el('p', { class: 'hint', text: 'بياناتك محفوظة على هذا الجهاز فقط.' }) : null);
     }
   }
@@ -344,9 +354,9 @@
   async function startTeach(ctx, mode, question, replace) {
     prime(); S.ctx = ctx; const sid = ++S.sid; setTransient(loading(mode === 'summary' ? 'أجهّز الملخص…' : mode === 'simple' ? 'أبسّط الشرح…' : 'الهيثم يجهّز الشرح…'));
     try {
-      const d = await api('/api/learn/teach', { bookId: ctx.bookId, sectionId: ctx.sectionId, query: ctx.query, mode, question, stage: P.stage === 'kids' ? 'kids' : 'reader' });
+      const d = await api('/api/learn/teach', { bookId: ctx.bookId, sectionId: ctx.sectionId || undefined, query: (mode === 'ask' && !ctx.sectionId) ? question : (ctx.query || ctx.title), mode, question, stage: P.stage === 'kids' ? 'kids' : 'reader' });
       if (sid !== S.sid) return;
-      S.ctx = { ...ctx, sectionId: d.sectionId, title: d.title, query: ctx.sectionId ? undefined : ctx.query };
+      S.ctx = { ...ctx, sectionId: d.sectionId || undefined, title: d.title, query: d.sectionId ? undefined : (ctx.query || ctx.title) };
       show(d.title, () => drawTeach(d), Boolean(replace));
     } catch (e) { if (sid === S.sid) setTransient(errorBox(e.message, () => startTeach(ctx, mode, question, replace)), el('button', { class: 'btn alt', text: 'رجوع', onclick: back })); }
   }
@@ -370,9 +380,19 @@
       [...dots.children].forEach((x, k) => x.className = k === i ? 'on' : (k < i ? 'done' : ''));
       box.classList.toggle('src', slides[i].src); const tokens = slides[i].t.split(/\s+/).filter(Boolean); words = tokens.map(t => el('span', { class: 'w', text: t }));
       const p = el('p'); words.forEach((w, k) => { p.append(w); if (k < words.length - 1) p.append(' '); }); box.replaceChildren(p);
+      box.classList.remove('enter'); void box.offsetWidth; box.classList.add('enter');
       prev.disabled = i === 0; next.textContent = i === last ? 'أنهيت ✓' : 'التالي ◀';
       if (auto) read(); else play.textContent = '🔊 اقرأ';
     }
+    let sx = null, sy = 0;
+    box.addEventListener('touchstart', e => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+    box.addEventListener('touchend', e => {
+      if (sx == null) return; const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy; sx = null;
+      if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+      const rightIsNext = (P.swipe || 'right') === 'right', goNext = dx > 0 ? rightIsNext : !rightIsNext;
+      if (goNext) { if (i < last) render(i + 1); else finish(); } else if (i > 0) render(i - 1);
+    }, { passive: true });
+    S.keyHandler = e => { if (e.key === 'ArrowLeft') { if (i < last) render(i + 1); else finish(); } else if (e.key === 'ArrowRight' && i > 0) render(i - 1); };
     let finished = false;
     function finish() {
       if (finished) return; finished = true; auto = false; play.textContent = '🔊 اقرأ';
@@ -381,11 +401,10 @@
     }
     const act = (em, label, fn) => el('button', { class: 'act', type: 'button', onclick: fn }, el('span', { text: em }), label);
     setBody(
-      d.notice ? el('div', { class: 'notice', text: d.notice }) : null, dots, box, el('div', { class: 'ctrl' }, prev, play, next),
+      d.notice ? el('div', { class: 'notice', text: d.notice }) : null, dots, box, el('div', { class: 'hint', text: 'اسحب الشريحة يمينًا أو يسارًا للتنقّل' }), el('div', { class: 'ctrl' }, prev, play, next),
       el('div', { class: 'actions' }, act('🔁', 'أعد', () => { finished = false; auto = true; render(0); }), act('🧒', 'بسّط', () => startTeach(S.ctx, 'simple', '', true)), act('📝', 'ملخص', () => startTeach(S.ctx, 'summary', '', true)), quizBtn, act('💬', 'اسأل', () => show('اسأل عن الدرس', screenAsk)))
     );
     document.body.classList.toggle('kids', P.stage === 'kids'); render(0);
-    body.onkeydown = e => { if (e.key === 'ArrowLeft') next.click(); else if (e.key === 'ArrowRight' && !prev.disabled) prev.click(); };
   }
   function screenAsk() {
     const input = el('input', { class: 'input', placeholder: 'اكتب سؤالك عن هذا الدرس', maxlength: '300', 'aria-label': 'سؤالك' });
@@ -398,9 +417,12 @@
   // ---------- quiz ----------
   async function startQuiz(ctx, count) {
     prime(); S.ctx = ctx; const sid = ++S.sid; setTransient(loading('أجهّز أسئلتك…'));
+    const qkey = (ctx.bookId || '') + ':' + (ctx.sectionId || ctx.query || ctx.title || '');
     try {
-      const d = await api('/api/learn/quiz', { bookId: ctx.bookId, sectionId: ctx.sectionId, query: ctx.query, count, stage: P.stage === 'kids' ? 'kids' : 'reader' });
+      const d = await api('/api/learn/quiz', { bookId: ctx.bookId, sectionId: ctx.sectionId || undefined, query: ctx.sectionId ? undefined : (ctx.query || ctx.title), count, stage: P.stage === 'kids' ? 'kids' : 'reader', avoid: ((P.asked || {})[qkey] || []).slice(-12) });
       if (sid !== S.sid) return;
+      P.asked = P.asked || {}; P.asked[qkey] = [...(P.asked[qkey] || []), ...d.questions.map(q => String(q.q).slice(0, 100))].slice(-30);
+      const keys = Object.keys(P.asked); if (keys.length > 40) delete P.asked[keys[0]]; save();
       show('اختبار: ' + d.title, () => drawQuiz(d), S.nav.length > 0 && /^اختبار/.test(S.nav[S.nav.length - 1].title));
     } catch (e) { if (sid === S.sid) setTransient(errorBox(e.message, () => startQuiz(ctx, count)), el('button', { class: 'btn alt', text: 'رجوع', onclick: back })); }
   }
@@ -455,45 +477,104 @@
   // ---------- games (work offline, no AI needed) ----------
   const LETTERS = [['أ', 'ألف', 'أرنب', '🐰'], ['ب', 'باء', 'بطة', '🦆'], ['ت', 'تاء', 'تفاحة', '🍎'], ['ث', 'ثاء', 'ثعلب', '🦊'], ['ج', 'جيم', 'جمل', '🐪'], ['ح', 'حاء', 'حصان', '🐴'], ['خ', 'خاء', 'خروف', '🐑'], ['د', 'دال', 'دجاجة', '🐔'], ['ذ', 'ذال', 'ذرة', '🌽'], ['ر', 'راء', 'رعد', '⛈️'], ['ز', 'زاي', 'زرافة', '🦒'], ['س', 'سين', 'سمكة', '🐟'], ['ش', 'شين', 'شمس', '☀️'], ['ص', 'صاد', 'صقر', '🦅'], ['ض', 'ضاد', 'ضفدع', '🐸'], ['ط', 'طاء', 'طائرة', '✈️'], ['ظ', 'ظاء', 'ظرف', '✉️'], ['ع', 'عين', 'عنب', '🍇'], ['غ', 'غين', 'غيمة', '☁️'], ['ف', 'فاء', 'فيل', '🐘'], ['ق', 'قاف', 'قمر', '🌙'], ['ك', 'كاف', 'كتاب', '📖'], ['ل', 'لام', 'ليمونة', '🍋'], ['م', 'ميم', 'موزة', '🍌'], ['ن', 'نون', 'نحلة', '🐝'], ['ه', 'هاء', 'هدية', '🎁'], ['و', 'واو', 'وردة', '🌹'], ['ي', 'ياء', 'يد', '✋']];
   const NUMW = ['صفر', 'واحد', 'اثنان', 'ثلاثة', 'أربعة', 'خمسة', 'ستة', 'سبعة', 'ثمانية', 'تسعة', 'عشرة', 'أحد عشر', 'اثنا عشر'];
-  const THINGS = ['🍎', '⭐', '🐟', '🎈', '🚗', '🌸', '🐥', '🍪'];
+  const THINGS = [['🍪', 'بسكوتة'], ['🍎', 'تفاحة'], ['⭐', 'نجمة'], ['🎈', 'بالونة'], ['🐟', 'سمكة'], ['🌸', 'وردة']];
   const COLORS = [['🍌', 'الموز', 'الأصفر', '#f6c90e'], ['🍎', 'التفاحة', 'الأحمر', '#e53935'], ['🐸', 'الضفدع', 'الأخضر', '#43a047'], ['🍊', 'البرتقالة', 'البرتقالي', '#fb8c00'], ['🐳', 'الحوت', 'الأزرق', '#1e66d0'], ['🍇', 'العنب', 'البنفسجي', '#7b1fa2']];
-  const threeNums = (n, lo, hi) => { const s = new Set([n]); while (s.size < 3) { const c = n + (rnd(5) - 2); if (c >= lo && c <= hi) s.add(c); else s.add(lo + rnd(hi - lo + 1)); } return shuffle([...s]); };
+  const PRAISE = ['أحسنت يا بطل! 🌟', 'ما شاء الله! إجابة صحيحة 🎉', 'رائع جدًا! أنت ذكي ⭐', 'ممتاز! استمر يا بطل 💪'];
+  const PRAISE_SAY = ['أحسنت يا بطل!', 'ما شاء الله! إجابة صحيحة!', 'رائع جدًا! أنت ذكي!', 'ممتاز! استمر يا بطل!'];
+  const RETRY = ['حاول مرة أخرى يا بطل 💪', 'ليست الإجابة الصحيحة، حاول مرة أخرى', 'قريب جدًا! جرّب مرة أخرى 🌈'];
+  const RETRY_SAY = ['حاول مرة أخرى يا بطل', 'ليست الإجابة الصحيحة. حاول مرة أخرى', 'قريب جدًا! جرّب مرة أخرى'];
+  const pick1 = arr => arr[rnd(arr.length)];
+  const nums4 = (n, lo, hi) => { const s = new Set([n]); let g = 0; while (s.size < 4 && g++ < 60) { const c = n + (rnd(7) - 3); s.add(c >= lo && c <= hi ? c : lo + rnd(hi - lo + 1)); } return shuffle([...s]); };
+  // each round: { kind:'choice'|'count'|'build', ... }
   const GAMES = {
-    letters: () => { const t = LETTERS[rnd(LETTERS.length)]; const others = shuffle(LETTERS.filter(x => x !== t)).slice(0, 2); const opts = shuffle([t, ...others]).map(x => ({ label: x[0], val: x[0] }));
-      return { vis: t[3], prompt: 'ما أول حرف في اسم هذه الصورة؟', speak: t[2] + '. ما أول حرف في كلمة ' + t[2] + '؟', opts, right: t[0], after: t[2] + ' يبدأ بحرف ' + t[1] }; },
-    count: () => { const n = 1 + rnd(9); const th = THINGS[rnd(THINGS.length)]; return { vis: th.repeat(n), prompt: 'كم عددها؟', speak: 'كم عددها؟', opts: threeNums(n, 1, 10).map(x => ({ label: AR(x), sub: NUMW[x], val: x })), right: n, after: 'العدد ' + NUMW[n] }; },
-    math: () => { const sub = Math.random() < .4; let a, b, r; if (sub) { a = 2 + rnd(8); b = 1 + rnd(a - 1); r = a - b; } else { a = 1 + rnd(5); b = 1 + rnd(5); r = a + b; } const th = THINGS[rnd(THINGS.length)];
-      return { vis: sub ? th.repeat(a) + ' ➖ ' + th.repeat(b) : th.repeat(a) + ' ➕ ' + th.repeat(b), small: true, prompt: AR(a) + (sub ? ' − ' : ' + ') + AR(b) + ' = ؟', speak: NUMW[a] + (sub ? ' ناقص ' : ' زائد ') + NUMW[b] + ' يساوي كم؟', opts: threeNums(r, 0, 12).map(x => ({ label: AR(x), val: x })), right: r, after: 'الناتج ' + NUMW[r] }; },
-    colors: () => { const c = COLORS[rnd(COLORS.length)]; const opts = shuffle([c, ...shuffle(COLORS.filter(x => x !== c)).slice(0, 2)]).map(x => ({ label: '', sub: x[2], color: x[3], val: x[2] }));
-      return { vis: c[0], prompt: 'ما لون ' + c[1] + '؟', speak: 'ما لون ' + c[1] + '؟', opts, right: c[2], after: 'لون ' + c[1] + ' ' + c[2] }; }
+    letters: [
+      () => { const t = pick1(LETTERS); const opts = shuffle([t, ...shuffle(LETTERS.filter(x => x !== t)).slice(0, 3)]).map(x => ({ label: x[0], val: x[0] }));
+        return { kind: 'choice', vis: t[3], prompt: 'ما أول حرف في اسم هذه الصورة؟', speak: t[2] + '. ما أول حرف في كلمة ' + t[2] + '؟', opts, right: t[0], after: t[2] + ' يبدأ بحرف ' + t[1] }; },
+      () => { const t = pick1(LETTERS); const opts = shuffle([t, ...shuffle(LETTERS.filter(x => x !== t)).slice(0, 3)]).map(x => ({ label: x[3], val: x[0] }));
+        return { kind: 'choice', vis: t[0], prompt: 'اضغط على الصورة التي يبدأ اسمها بحرف ' + t[1], speak: 'اضغط على الصورة التي يبدأ اسمها بحرف ' + t[1], opts, right: t[0], after: t[2] + ' يبدأ بحرف ' + t[1], picOpts: true }; }
+    ],
+    count: [
+      () => { const n = 1 + rnd(9); const th = pick1(THINGS); return { kind: 'choice', vis: th[0].repeat(n), prompt: 'كم عددها؟', speak: 'كم عددها؟', opts: nums4(n, 1, 10).map(x => ({ label: AR(x), sub: NUMW[x], val: x })), right: n, after: 'العدد ' + NUMW[n] }; },
+      () => ({ kind: 'count', n: 3 + rnd(5), th: pick1(THINGS) })
+    ],
+    math: [
+      () => { const sub = Math.random() < .4; let a, b, r; if (sub) { a = 2 + rnd(8); b = 1 + rnd(a - 1); r = a - b; } else { a = 1 + rnd(5); b = 1 + rnd(5); r = a + b; } const th = pick1(THINGS)[0];
+        return { kind: 'choice', vis: sub ? th.repeat(a) + ' ➖ ' + th.repeat(b) : th.repeat(a) + ' ➕ ' + th.repeat(b), small: true, prompt: AR(a) + (sub ? ' − ' : ' + ') + AR(b) + ' = ؟', speak: NUMW[a] + (sub ? ' ناقص ' : ' زائد ') + NUMW[b] + ' يساوي كم؟', opts: nums4(r, 0, 12).map(x => ({ label: AR(x), val: x })), right: r, after: 'الناتج ' + NUMW[r] }; },
+      () => { const sub = Math.random() < .4; return sub ? { kind: 'build', sub: true, a: 4 + rnd(5), b: 1 + rnd(3), th: pick1(THINGS) } : { kind: 'build', sub: false, a: 2 + rnd(5), b: 1 + rnd(3), th: pick1(THINGS) }; }
+    ],
+    colors: [
+      () => { const c = pick1(COLORS); const opts = shuffle([c, ...shuffle(COLORS.filter(x => x !== c)).slice(0, 3)]).map(x => ({ label: '', sub: x[2], color: x[3], val: x[2] }));
+        return { kind: 'choice', vis: c[0], prompt: 'ما لون ' + c[1] + '؟', speak: 'ما لون ' + c[1] + '؟', opts, right: c[2], after: 'لون ' + c[1] + ' ' + c[2] }; },
+      () => { const c = pick1(COLORS); const opts = shuffle([c, ...shuffle(COLORS.filter(x => x !== c)).slice(0, 3)]).map(x => ({ label: x[0], val: x[2] }));
+        return { kind: 'choice', vis: '🎨', small: true, prompt: 'اضغط على الشيء ' + c[2], speak: 'اضغط على الشيء ' + c[2], opts, right: c[2], after: c[1] + ' لونه ' + c[2], picOpts: true }; }
+    ]
   };
+  const PLAN = [0, 1, 0, 0, 1, 0];
   function openGames() { openSheet('ألعاب', screenGames); }
   function screenGames() {
     const g = (key, em, t, s) => el('button', { class: 'big', type: 'button', onclick: () => { prime(); show(t, () => playGame(key)); } }, el('span', { class: 'em', text: em }), el('div', {}, t, el('small', { text: s })));
-    setBody(el('p', { class: 'bubble center', text: 'اختر لعبة 🎮' }), g('letters', '🔤', 'من أنا؟ الحروف', 'صورة وحرف البداية'), g('count', '🔢', 'العدّ', 'كم عددها؟'), g('math', '➕', 'جمع وطرح', 'بالصور والأرقام'), g('colors', '🎨', 'الألوان', 'ما لونه؟'));
+    setBody(el('p', { class: 'bubble center', text: 'اختر لعبة 🎮' }), g('letters', '🔤', 'من أنا؟ الحروف', 'صور وحروف'), g('count', '🔢', 'العدّ', 'عدّ معي بالصور'), g('math', '➕', 'جمع وطرح', 'بالصور والصوت'), g('colors', '🎨', 'الألوان', 'ما لونه؟'));
   }
   function playGame(key) {
-    const ROUNDS = 6; let n = 0, ok = 0;
+    const ROUNDS = 6, sid = S.sid; let n = 0, ok = 0;
+    const alive = () => S.sid === sid && sheet.classList.contains('open');
+    function sayThen(text, cb) { let done = false; const go = () => { if (done) return; done = true; clearTimeout(t); if (alive()) cb(); }; const t = setTimeout(go, Math.max(3000, text.length * 110)); speak(text, [], { onEnd: go, onFail: () => setTimeout(go, 1200) }); }
+    const nextRound = () => { n++; if (n >= ROUNDS) end(); else round(); };
+    const bar = () => el('div', { class: 'bar' }, el('i', { style: 'width:' + Math.round(n / ROUNDS * 100) + '%' }));
     function round() {
-      const r = GAMES[key](); let done = false;
-      const vis = el('div', { class: 'vis' + (r.small ? ' small' : ''), role: 'img', 'aria-label': r.prompt, text: r.vis });
-      const fb = el('div', { class: 'status', role: 'status' });
-      const opts = el('div', { class: 'opts3' }, r.opts.map(o => {
-        const b = el('button', { class: 'gopt', type: 'button', 'aria-label': o.label || o.sub, onclick: () => {
-          if (done) return; done = true; const right = o.val === r.right;
-          [...opts.children].forEach((x, j) => { if (r.opts[j].val === r.right) x.classList.add('right'); else if (x === b) x.classList.add('wrong'); x.disabled = true; });
-          if (right) { ok++; beep('ok'); fb.textContent = '🎉 أحسنت!'; } else { beep('bad'); fb.textContent = '💪 حاول مرة أخرى في السؤال القادم'; }
-          setTimeout(() => say(r.after), 250); setTimeout(() => { n++; if (n >= ROUNDS) end(); else round(); }, 2300);
-        } }, o.color ? el('span', { class: 'dot', style: 'background:' + o.color }) : null, o.label ? o.label : null, o.sub ? el('small', { text: o.sub }) : null);
-        return b;
-      }));
-      setBody(el('div', { class: 'bar' }, el('i', { style: 'width:' + Math.round(n / ROUNDS * 100) + '%' })), el('p', { class: 'bubble center', text: r.prompt }), vis, el('button', { class: 'btn alt', type: 'button', text: '🔊 أعد السؤال', onclick: () => say(r.speak) }), opts, fb);
-      setTimeout(() => say(r.speak), 350);
+      const r = GAMES[key][PLAN[n]](); const rd = r.kind === 'choice' ? roundChoice(r) : r.kind === 'count' ? roundCount(r) : roundBuild(r);
+      setBody(bar(), ...rd.nodes); setTimeout(() => { if (alive()) say(rd.intro); }, 350);
+    }
+    function roundChoice(r) {
+      let tries = 0, locked = false; const vis = el('div', { class: 'vis' + (r.small ? ' small' : ''), role: 'img', 'aria-label': r.prompt, text: r.vis });
+      const fb = el('div', { class: 'status', role: 'status' }), offer = el('div', { class: 'row' });
+      window.__lastRight = r.right; const buttons = r.opts.map(o => el('button', { class: 'gopt' + (r.picOpts ? ' pic' : ''), type: 'button', 'data-val': String(o.val), 'aria-label': o.label || o.sub, onclick: () => choose(o, buttons[r.opts.indexOf(o)]) }, o.color ? el('span', { class: 'dot', style: 'background:' + o.color }) : null, o.label || null, o.sub ? el('small', { text: o.sub }) : null));
+      const grid = el('div', { class: 'opts4' }, buttons);
+      const reveal = () => buttons.forEach((b, j) => { if (r.opts[j].val === r.right) b.classList.add('right'); b.disabled = true; });
+      function choose(o, b) {
+        if (locked) return;
+        if (o.val === r.right) {
+          locked = true; ok++; reveal(); offer.replaceChildren(); beep('ok'); const k = rnd(PRAISE.length); fb.textContent = PRAISE[k]; fb.className = 'status good';
+          sayThen(PRAISE_SAY[k] + ' ' + r.after, nextRound);
+        } else {
+          tries++; b.classList.add('wrong'); b.disabled = true; beep('bad');
+          if (tries >= 3) {
+            fb.textContent = 'حاولت ثلاث مرات. هل تريد أن أجيبك أنا؟'; say('حاولت ثلاث مرات. هل تريد أن أجيبك أنا؟');
+            offer.replaceChildren(el('button', { class: 'btn', type: 'button', text: 'نعم، أرني الإجابة', onclick: () => { locked = true; reveal(); offer.replaceChildren(); fb.textContent = 'الإجابة الصحيحة: ' + r.after; sayThen('الإجابة الصحيحة. ' + r.after, nextRound); } }),
+              el('button', { class: 'btn alt', type: 'button', text: 'لا، سأحاول', onclick: () => { offer.replaceChildren(); fb.textContent = 'حسنًا، جرّب مرة أخرى 💪'; say('حسنًا، جرّب مرة أخرى'); } }));
+          } else { const k = (tries - 1) % RETRY.length; fb.textContent = RETRY[k]; fb.className = 'status'; say(RETRY_SAY[k]); }
+        }
+      }
+      return { intro: r.speak, nodes: [el('p', { class: 'bubble center', text: r.prompt }), vis, el('button', { class: 'btn alt', type: 'button', text: '🔊 أعد السؤال', onclick: () => say(r.speak) }), grid, fb, offer] };
+    }
+    function roundCount(r) {
+      let counted = 0, done = false; const fb = el('div', { class: 'status', role: 'status' });
+      const items = Array.from({ length: r.n }, () => el('button', { class: 'itm', type: 'button', 'aria-label': r.th[1], text: r.th[0], onclick: function () {
+        if (done || this.classList.contains('counted')) return; this.classList.add('counted'); counted++; beep('ok'); say(NUMW[counted]); fb.textContent = AR(counted);
+        if (counted === r.n) { done = true; ok++; const k = rnd(PRAISE.length); fb.textContent = AR(r.n) + ' — ' + PRAISE[k]; fb.className = 'status good'; setTimeout(() => { if (alive()) sayThen(PRAISE_SAY[k] + ' العدد ' + NUMW[r.n], nextRound); }, 900); }
+      } }));
+      const intro = 'لنعدّ معًا. اضغط على كل واحدة وسأعدّها لك.';
+      return { intro, nodes: [el('p', { class: 'bubble center', text: 'اضغط على كل واحدة لنعدّها معًا 👆' }), el('div', { class: 'group' }, items), fb] };
+    }
+    function roundBuild(r) {
+      const [em, nameWord] = r.th; let moved = 0, done = false; const eq = el('div', { class: 'eq' }), fb = el('div', { class: 'status', role: 'status' });
+      const total = r.sub ? r.a - r.b : r.a + r.b; const upd = () => { eq.textContent = r.sub ? `${AR(r.a)} − ${AR(r.b)} = ${moved === r.b ? AR(total) : '؟'}` : `${AR(r.a)} + ${AR(r.b)} = ${moved === r.b ? AR(total) : '؟'}`; }; upd();
+      const finish = () => { done = true; ok++; upd(); const k = rnd(PRAISE.length); fb.textContent = PRAISE[k]; fb.className = 'status good'; beep('win'); setTimeout(() => { if (alive()) sayThen(PRAISE_SAY[k] + ' ' + NUMW[r.a] + (r.sub ? ' ناقص ' : ' زائد ') + NUMW[r.b] + ' يساوي ' + NUMW[total], nextRound); }, 600); };
+      const left = el('div', { class: 'group' }), right = el('div', { class: 'group' });
+      if (!r.sub) {
+        for (let i = 0; i < r.a; i++) left.append(el('span', { class: 'itm static', text: em }));
+        for (let i = 0; i < r.b; i++) right.append(el('button', { class: 'itm', type: 'button', 'aria-label': 'أضف ' + nameWord, text: em, onclick: function () { if (done || this.dataset.moved) return; this.dataset.moved = '1'; left.append(this); moved++; beep('ok'); say(NUMW[r.a + moved]); fb.textContent = AR(r.a + moved); upd(); if (moved === r.b) finish(); } }));
+      } else {
+        for (let i = 0; i < r.a; i++) left.append(el('button', { class: 'itm', type: 'button', 'aria-label': 'خذ ' + nameWord, text: em, onclick: function () { if (done || this.dataset.moved || moved >= r.b) return; this.dataset.moved = '1'; this.classList.add('gone'); moved++; beep('ok'); say(NUMW[r.a - moved]); fb.textContent = AR(r.a - moved); upd(); if (moved === r.b) finish(); } }));
+      }
+      const intro = r.sub ? `معنا ${NUMW[r.a]}، ونأخذ ${NUMW[r.b]}. اضغط على ${NUMW[r.b]} لنأخذها ونرى كم يبقى.` : `معنا ${NUMW[r.a]}، ونضيف ${NUMW[r.b]}. اضغط على كل واحدة من المجموعة الثانية لننقلها ونعدّ معًا.`;
+      return { intro, nodes: [el('p', { class: 'bubble center', text: r.sub ? `لنأخذ ${NUMW[r.b]} ونرى كم يبقى 👆` : `لنضيف ${NUMW[r.b]} ونعدّ معًا 👆` }), left, r.sub ? null : el('div', { class: 'plus', text: '➕' }), r.sub ? null : right, eq, fb] };
     }
     function end() {
       award(ok, 'games'); if (ok >= 4) { confetti(); beep('win'); }
       setBody(el('div', { class: 'center', style: 'flex:1;display:flex;flex-direction:column;gap:12px' }, el('div', { class: 'result', text: ok >= 5 ? '🏆' : ok >= 3 ? '🎉' : '💪' }), el('div', { class: 'score', text: AR(ok) + ' من ' + AR(ROUNDS) }), el('div', { class: 'fb ok', text: '⭐ ربحت ' + AR(ok) + ' نجوم' })),
         el('button', { class: 'btn', type: 'button', text: '🔁 العب مرة أخرى', onclick: () => { n = 0; ok = 0; round(); } }), el('button', { class: 'btn alt', type: 'button', text: 'ألعاب أخرى', onclick: back }));
+      say(ok >= 4 ? 'أحسنت يا بطل! ربحت ' + NUMW[ok] + ' نجوم' : 'جيد! حاول مرة أخرى لتربح نجومًا أكثر');
     }
     round();
   }

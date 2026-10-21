@@ -19,7 +19,8 @@ function startMockAI() {
     let b = ''; req.on('data', d => b += d); req.on('end', () => {
       if (req.url.includes(':generateContent')) { geminiCalls++; res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;codec=pcm;rate=24000', data: Buffer.alloc(4800, 3).toString('base64') } }] } }] })); }
       if (req.url.endsWith('/audio/speech')) { speechCalls++; res.setHeader('Content-Type', 'audio/mpeg'); return res.end(Buffer.alloc(2048, 7)); }
-      const body = JSON.parse(b || '{}'); const user = body.messages.map(m => m.content).join('\n'); seen.push(user);
+      const body = JSON.parse(b || '{}');
+      if (body.model === 'bad-model') { res.statusCode = 404; res.setHeader('Content-Type', 'application/json'); return res.end('{"error":{"message":"model not found"}}'); } const user = body.messages.map(m => m.content).join('\n'); seen.push(user);
       let content;
       if (user.includes('أخرج JSON فقط بلا أي شرح')) content = '```json\n' + JSON.stringify({ questions: [
         { type: 'mcq', q: 'ما معنى الصدق؟', options: ['قول الحقيقة', 'إخفاء الخطأ', 'الكذب'], answer: 0, why: 'الصدق قول الحقيقة' },
@@ -46,7 +47,7 @@ async function startServer(extraEnv) {
   throw new Error('server not ready: ' + out);
 }
 (async () => {
-  const checks = []; const mock = await startMockAI(); let withAI, noAI, gem;
+  const checks = []; const mock = await startMockAI(); let withAI, noAI, gem, badAI;
   try {
     withAI = await startServer({ AI_API_KEY: 'test-key', AI_BASE_URL: 'http://127.0.0.1:' + mock.port });
     const P = withAI.port;
@@ -57,11 +58,19 @@ async function startServer(extraEnv) {
     checks.push(['final slide is marked as the book\'s original text', t1.json.slides[2].src === true && t1.json.slides[2].t.startsWith('نص الكتاب') && t1.json.slides[0].src === false]);
     checks.push(['teacher-style rules are sent to the AI (explain, quote book text, solve math step by step)', mock.seen.some(s => s.includes('لا تقرأ النص كما هو') && s.includes('نص الكتاب:') && s.includes('خطوة خطوة'))]);
     checks.push(['AI prompt received repaired (not reversed) book text', mock.seen.some(s => s.includes('الصدق خلق عظيم')) && !mock.seen.some(s => s.includes('قدصلا')) ]);
+    const ta = await request(P, '/api/learn/teach', { method: 'POST', body: { bookId: 'book1', query: 'ما هو الصدق؟', mode: 'explain' } });
+    checks.push(['a topic question gets a direct answer (ask mode), not a lesson explanation', ta.status === 200 && ta.json.mode === 'ask' && mock.seen.at(-1).includes('أجب عن سؤال الطالب') && ta.json.sectionId === null]);
+    const tb = await request(P, '/api/learn/teach', { method: 'POST', body: { bookId: 'book1', query: 'ما هو الصدق؟', mode: 'simple' } });
+    checks.push(['simplify/summary after a topic question no longer fails with "not found"', tb.status === 200 && mock.seen.at(-1).includes('بسّط هذا القسم')]);
+    const tc = await request(P, '/api/learn/teach', { method: 'POST', body: { bookId: 'book1', query: 'لخص الدرس الأول' } });
+    checks.push(['typed "لخص الدرس الأول" is understood as a summary request', tc.status === 200 && tc.json.mode === 'summary' && mock.seen.at(-1).includes('عمّا يتحدث الدرس')]);
     const t2 = await request(P, '/api/learn/teach', { method: 'POST', body: { bookId: 'book1', query: 'اشرح الوحدة السابعة' } });
     checks.push(['unknown unit gives a clear 404', t2.status === 404 && t2.json.error.includes('الوحدة')]);
     const t3 = await request(P, '/api/learn/teach', { method: 'POST', body: { bookId: 'nope', query: 'x' } }); checks.push(['unknown book is rejected', t3.status === 404]);
     const q = await request(P, '/api/learn/quiz', { method: 'POST', body: { bookId: 'book1', sectionId: 'l1', count: 4, stage: 'reader' } });
     checks.push(['quiz returns validated mcq + write questions', q.status === 200 && q.json.questions.some(x => x.type === 'mcq' && x.answer === 0) && q.json.questions.some(x => x.type === 'write')]);
+    const qv = await request(P, '/api/learn/quiz', { method: 'POST', body: { bookId: 'book1', sectionId: 'l1', count: 3, avoid: ['ما معنى الصدق؟'] } });
+    checks.push(['quiz asks the AI not to repeat earlier questions', qv.status === 200 && mock.seen.at(-1).includes('فلا تكررها') && mock.seen.at(-1).includes('ما معنى الصدق؟')]);
     const g = await request(P, '/api/learn/grade', { method: 'POST', body: { q: 'لماذا نصدق؟', model: 'لأن الصدق يبني الثقة', answer: 'لأنه يبني الثقة' } }); checks.push(['grading returns score and feedback', g.json?.score === 2 && !!g.json.feedback]);
     const bad = await request(P, '/api/learn/teach', { method: 'POST', body: { bookId: 'book1', mode: 'ask', question: '' } }); checks.push(['empty question is rejected', bad.status === 400]);
     const st = await request(P, '/api/learn/status'); checks.push(['status reports AI and cloud voice available', st.json?.ai === true && st.json?.tts === true]);
@@ -69,6 +78,9 @@ async function startServer(extraEnv) {
     const sp2 = await request(P, '/api/learn/speak', { method: 'POST', body: { text: 'مرحبًا بك يا صديقي' } });
     checks.push(['cloud voice returns audio and caches repeated text', sp1.status === 200 && sp1.body.length > 100 && sp2.status === 200 && mock.calls() === 1]);
     const sp3 = await request(P, '/api/learn/speak', { method: 'POST', body: { text: ' ' } }); checks.push(['cloud voice rejects empty text', sp3.status === 400]);
+    badAI = await startServer({ AI_API_KEY: 'k', AI_BASE_URL: 'http://127.0.0.1:' + mock.port, AI_MODEL: 'bad-model' });
+    const tbad = await request(badAI.port, '/api/learn/teach', { method: 'POST', body: { bookId: 'book1', sectionId: 'l1', mode: 'explain' } });
+    checks.push(['a wrong AI_MODEL is explained in plain Arabic (and the book text is still shown)', tbad.status === 200 && tbad.json.notice.includes('AI_MODEL') && tbad.json.slides.length > 0]);
     gem = await startServer({ AI_API_KEY: 'gem-key', AI_BASE_URL: 'http://127.0.0.1:' + mock.port + '/v1beta/openai/', TTS_BASE_URL: 'http://127.0.0.1:' + mock.port + '/v1beta', TTS_PROVIDER: 'gemini' });
     const g1 = await request(gem.port, '/api/learn/speak', { method: 'POST', body: { text: 'مرحبًا بك يا صديقي' } });
     checks.push(['Gemini voice: raw PCM is wrapped as a playable WAV (RIFF, 24 kHz, 16-bit mono)', g1.status === 200 && g1.body.startsWith('RIFF') && mock.gemini() === 1]);
@@ -82,7 +94,7 @@ async function startServer(extraEnv) {
     const f3 = await request(noAI.port, '/api/learn/grade', { method: 'POST', body: { q: 'ما الصدق؟', model: 'قول الحقيقة وعدم خداع الآخرين', answer: 'قول الحقيقة وعدم الخداع' } });
     checks.push(['without AI key: keyword grading works', f3.json?.score >= 1 && f3.json.approximate === true]);
   } catch (e) { console.error(e); checks.push(['no exception', false]); }
-  finally { withAI?.child.kill(); noAI?.child.kill(); gem?.child.kill(); mock.srv.close(); }
+  finally { withAI?.child.kill(); noAI?.child.kill(); gem?.child.kill(); badAI?.child.kill(); mock.srv.close(); }
   let failed = 0; for (const [n, ok] of checks) { console.log((ok ? 'PASS ' : 'FAIL ') + n); if (!ok) failed++; }
   console.log(`\n${checks.length - failed}/${checks.length} learn API checks passed.`); process.exit(failed ? 1 : 0);
 })();

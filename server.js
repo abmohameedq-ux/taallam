@@ -189,13 +189,14 @@ async function aiChat(messages,{temperature=0.4,max_tokens=1000,timeoutMs=30000}
   if(aiDay.n>=Number(process.env.AI_DAILY_LIMIT||3000)){const e=new Error('وصلت المنصة إلى الحد اليومي لاستخدام المعلّم الذكي. حاول غدًا.');e.status=429;throw e;}
   aiDay.n++;
   const base=(process.env.AI_BASE_URL||'https://api.openai.com/v1').replace(/\/$/,''); const model=process.env.AI_MODEL||'gpt-4o-mini';
+  if(/generativelanguage\.googleapis\.com/.test(base))max_tokens=Math.min(8000,max_tokens*3); // Gemini 2.5 models spend part of the budget on hidden reasoning
   const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),timeoutMs);
   try{
     const r=await fetch(base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model,messages,temperature,max_tokens}),signal:controller.signal});
     const payload=await r.json().catch(()=>({}));
-    if(!r.ok){console.error('AI provider status',r.status);throw new Error('تعذّر الوصول إلى المعلّم الذكي الآن. حاول بعد قليل.');}
+    if(!r.ok){console.error('AI provider status',r.status,JSON.stringify(payload).slice(0,300));const hints={400:'رفض المزوّد الطلب؛ تحقق من AI_MODEL.',401:'مفتاح AI_API_KEY غير صحيح.',403:'مفتاح AI_API_KEY غير مفعّل أو غير مسموح له.',404:'اسم النموذج AI_MODEL أو عنوان AI_BASE_URL غير صحيح.',429:'تجاوزت حدّ الاستخدام المجاني لدى المزوّد؛ انتظر قليلًا.'};const e=new Error('تعذّر الوصول إلى المعلّم الذكي ('+r.status+'): '+(hints[r.status]||'خطأ من المزوّد.'));e.providerStatus=r.status;throw e;}
     const out=payload.choices?.[0]?.message?.content;
-    if(typeof out!=='string'||!out.trim())throw new Error('وصل رد غير مكتمل. حاول مرة أخرى.');
+    if(typeof out!=='string'||!out.trim())throw new Error('وصل رد فارغ من المزوّد (قد يكون النموذج يستهلك الحد في التفكير الداخلي). جرّب نموذجًا آخر في AI_MODEL.');
     return out.trim();
   }catch(e){if(e.name==='AbortError')throw new Error('تأخر الرد. حاول مرة أخرى.');throw e;}finally{clearTimeout(timer);}
 }
@@ -205,17 +206,18 @@ function parseJsonLoose(raw){
   const a=s.indexOf('{'),b=s.lastIndexOf('}'); if(a>=0&&b>a){try{return JSON.parse(s.slice(a,b+1));}catch{}}
   return null;
 }
-const LEARN_BASE_RULES='أنت «الهيثم»، معلّم عربي بارع ولطيف يشرح لطلاب المدارس. مهمتك أن تُفهِم الطالب درسه الموجود في نص الكتاب المرفق. لا تقرأ النص كما هو ولا تنقله جملة بجملة؛ بل اشرحه بأسلوبك كمعلّم يحدّث طلابه (مثل: «انظر يا صديقي ماذا قال النبي صلى الله عليه وسلم…»)، وبسّط الكلمات الصعبة، وأعطِ أمثلة من حياة الطالب. التزم بموضوع الكتاب ومعانيه: لا تغيّر المعنى ولا تضف أحكامًا أو معلومات جديدة غير موجودة في الكتاب، ويجوز فقط التوضيح والتمثيل المرتبط بالموضوع نفسه. إذا ذكرت النبي فاكتب «صلى الله عليه وسلم» كاملة ولا تستخدم الرموز المختصرة. في الفقرة الأخيرة اذكر النص الأصلي المهم من الكتاب (آية أو حديثًا أو تعريفًا أو قاعدة) بادئًا بعبارة «نص الكتاب:» ثم النص حرفيًا كما ورد في المقتطف دون أي تغيير. وإذا كان القسم مسألة أو قاعدة في الرياضيات أو العلوم فحلّها وفسّرها خطوة خطوة بأعداد وأمثلة محسوسة (كتفاحات نطرح منها أو نضيف إليها)، مع توضيح كل عملية قبل ذكر الناتج. لا تطلب أي بيانات شخصية، والتزم بمحتوى مناسب للأطفال.';
+const LEARN_BASE_RULES='أنت «الهيثم»، معلّم عربي بارع ولطيف يشرح لطلاب المدارس. مهمتك أن تُفهِم الطالب درسه الموجود في نص الكتاب المرفق. لا تقرأ النص كما هو ولا تنقله جملة بجملة؛ بل اشرحه بأسلوبك كمعلّم يحدّث طلابه (مثل: «انظر يا صديقي ماذا قال النبي صلى الله عليه وسلم…»)، وبسّط الكلمات الصعبة، وأعطِ أمثلة من حياة الطالب. التزم بموضوع الكتاب ومعانيه: لا تغيّر المعنى ولا تضف أحكامًا أو معلومات جديدة غير موجودة في الكتاب، ويجوز فقط التوضيح والتمثيل المرتبط بالموضوع نفسه. وحين تذكر مثالًا فابدأه بكلمة «مثلًا» (كأن تقول: مثلًا، إذا قام طالب بكسر قلم زميله فعليه أن يخبره بذلك). إذا ذكرت النبي فاكتب «صلى الله عليه وسلم» كاملة ولا تستخدم الرموز المختصرة. في الفقرة الأخيرة اذكر النص الأصلي المهم من الكتاب (آية أو حديثًا أو تعريفًا أو قاعدة) بادئًا بعبارة «نص الكتاب:» ثم النص حرفيًا كما ورد في المقتطف دون أي تغيير. وإذا كان القسم مسألة أو قاعدة في الرياضيات أو العلوم فحلّها وفسّرها خطوة خطوة بأعداد وأمثلة محسوسة (كتفاحات نطرح منها أو نضيف إليها)، مع توضيح كل عملية قبل ذكر الناتج. لا تطلب أي بيانات شخصية، والتزم بمحتوى مناسب للأطفال.';
 function stageStyle(stage){return stage==='kids'
   ?'الطالب في الصفوف الأولى من الابتدائية: استخدم جملًا قصيرة جدًا وكلمات سهلة ومثالًا من حياة الطفل، وابدأ بترحيب قصير، واجعل في الشرح سؤالًا بسيطًا يشجّعه على التفكير. يمكنك استخدام رمز تعبيري واحد في بعض الفقرات فقط.'
   :'الطالب يقرأ جيدًا: اشرح بوضوح وتنظيم مع أمثلة مناسبة، وابدأ بالفكرة العامة ثم التفاصيل، ثم اختم بخلاصة قصيرة قبل «نص الكتاب:».';}
 const FORMAT_RULE='اكتب نصًا عاديًا فقط دون رموز تنسيق (لا نجوم ولا # ولا قوائم مرقمة ولا جداول). قسّم الكلام إلى فقرات قصيرة يفصل بينها سطر فارغ، وكل فقرة من جملة إلى ثلاث جمل ليقرأها الطالب بصوت عالٍ.';
 const TEACH_TASKS={
   explain:'اشرح القسم التالي شرحًا وافيًا ومبسّطًا كأنك تعلّمه لطلابك (لا تنقل النص): من 6 إلى 9 فقرات قصيرة، ثم فقرة أخيرة تبدأ بـ«نص الكتاب:».',
-  simple:'أعد شرح القسم التالي بطريقة أبسط بكثير وبمثال جديد: من 4 إلى 6 فقرات قصيرة، ثم فقرة أخيرة تبدأ بـ«نص الكتاب:».',
-  summary:'لخّص القسم التالي تلخيصًا شارحًا (لا تكتفِ بنقل الجمل): من 4 إلى 6 فقرات قصيرة تذكر الأفكار المهمة بأسلوب مفهوم، ثم فقرة أخيرة تبدأ بـ«نص الكتاب:».',
-  ask:'أجب عن سؤال الطالب مستندًا إلى القسم التالي في 2 إلى 4 فقرات قصيرة، وإن وُجد نص مهم يتعلق بالسؤال فاختم بفقرة تبدأ بـ«نص الكتاب:».'
+  simple:'بسّط هذا القسم لطالب صغير: أعد شرح الفكرة بكلمات أسهل بكثير وبأمثلة جديدة من حياته، ولا تُعد نص الدرس ولا جمله. من 4 إلى 6 فقرات قصيرة، ثم فقرة أخيرة تبدأ بـ«نص الكتاب:».',
+  summary:'لخّص الدرس تلخيصًا شارحًا كما يُلخَّص أي كتاب: ابدأ بفقرة تقول عمّا يتحدث الدرس، ثم اذكر أهم النقاط (من 4 إلى 6 فقرات قصيرة) بأسلوبك وكلماتك دون نسخ جمل الكتاب، ثم فقرة أخيرة تبدأ بـ«نص الكتاب:».',
+  ask:'أجب عن سؤال الطالب إجابة مباشرة ومحددة مستخلصة من النص: ابدأ بالإجابة نفسها (كالتعريف)، ثم اشرح باختصار ما ورد في النص عنها من معانٍ وأمثلة وأحاديث، ولا تشرح الدرس كاملًا. من 2 إلى 5 فقرات قصيرة، وإن وُجد نص مهم يخص السؤال فاختم بفقرة تبدأ بـ«نص الكتاب:».'
 };
+
 function learnBook(bookId){
   const book=readData().books.find(b=>b.id===String(bookId||'')&&b.extractedText&&b.extractedText.length>100);
   return book?{book,prep:preparedBook(book)}:null;
@@ -302,14 +304,18 @@ async function handleLearn(req,res,pathname){
       return send(res,200,{title:lb.book.title,...learn.outlineForClient(lb.prep.outline)});
     }
     if(req.method!=='POST')return send(res,405,{error:'طريقة غير مسموحة'});
-    const body=await readBody(req,8000);
+    const body=await readBody(req,16000);
     if(pathname==='/api/learn/speak')return handleSpeak(res,body);
     const stage=body.stage==='kids'?'kids':'reader';
     if(pathname==='/api/learn/teach'){
-      const mode=Object.keys(TEACH_TASKS).includes(body.mode)?body.mode:'explain';
+      let mode=Object.keys(TEACH_TASKS).includes(body.mode)?body.mode:'explain';
       if(mode==='ask'&&!String(body.question||'').trim())return send(res,400,{error:'اكتب سؤالك أولًا.'});
+      const qText=String(body.query||body.question||'');
+      if(mode==='explain'&&!body.sectionId){if(/(?:لخّص|لخص|ملخص|تلخيص)/.test(qText))mode='summary';else if(/(?:بسّط|بسط|ابسط|أبسط|تبسيط)/.test(qText))mode='simple';}
       const r=learnResolve(body); if(r.error)return send(res,r.status,{error:r.error});
-      const {lb,sec}=r; const base={title:sec.title,sectionId:sec.id,bookTitle:lb.book.title,mode};
+      const {lb,sec}=r;
+      if(sec.kind==='search'&&mode==='explain'){mode='ask';body.question=qText;} // a topic question wants a direct answer, not a whole-lesson explanation
+      const base={title:sec.title,sectionId:/^[ulp]\d+$/.test(sec.id)?sec.id:null,bookTitle:lb.book.title,mode};
       let slides,configured=true,notice='';
       try{
         const sys=LEARN_BASE_RULES+'\n'+stageStyle(stage)+'\n'+FORMAT_RULE;
@@ -320,7 +326,7 @@ async function handleLearn(req,res,pathname){
         if(e.code!=='NO_AI'&&e.status===429)throw e;
         configured=e.code!=='NO_AI'?true:false;
         slides=plainSlides(mode==='summary'?learn.simpleSummary(sec.text,5):learn.slidesFromText(sec.text,8,stage==='kids'?160:240));
-        notice=e.code==='NO_AI'?'هذا نص الكتاب نفسه، لأن المعلّم الذكي غير مفعّل على الخادم.':'تعذّر الشرح الذكي الآن، فهذا نص الكتاب نفسه. '+(e.message||'');
+        notice=e.code==='NO_AI'?'هذا نص الكتاب نفسه، لأن المعلّم الذكي غير مفعّل على الخادم.':'تعذّر الشرح الذكي الآن، فهذا نص الكتاب نفسه. السبب: '+(e.message||'غير معروف');
         console.error('learn/teach fallback:',e.message);
       }
       if(!slides.length)return send(res,422,{error:'لم أستطع تجهيز الشرح لهذا الجزء.'});
@@ -329,10 +335,11 @@ async function handleLearn(req,res,pathname){
     if(pathname==='/api/learn/quiz'){
       const r=learnResolve(body); if(r.error)return send(res,r.status,{error:r.error});
       const {lb,sec}=r; const count=Math.max(3,Math.min(8,Number(body.count)||5)); let questions=[],configured=true,notice='';
+      const avoid=(Array.isArray(body.avoid)?body.avoid:[]).map(x=>String(x).trim().slice(0,140)).filter(Boolean).slice(0,15);
       try{
         const kinds=stage==='kids'?'كلها اختيار من متعدد بثلاثة خيارات قصيرة جدًا وسهلة.':'كلها اختيار من متعدد بثلاثة خيارات، ما عدا السؤال الأخير فيكون سؤالًا يُجاب عنه بجملة قصيرة (type: write) مع إجابة نموذجية.';
-        const prompt='أنشئ '+count+' أسئلة لاختبار فهم الطالب اعتمادًا حصريًا على النص أدناه. '+stageStyle(stage)+' '+kinds+' لا تضف معلومات من خارج النص. أخرج JSON فقط بلا أي شرح خارجه بهذا الشكل: {"questions":[{"type":"mcq","q":"...","options":["...","...","..."],"answer":0,"why":"سبب قصير للإجابة الصحيحة"},{"type":"write","q":"...","model":"إجابة نموذجية قصيرة"}]} حيث answer فهرس الإجابة الصحيحة يبدأ من صفر.\nعنوان القسم: '+sec.title+'\nالنص:\n'+sec.text.slice(0,7000);
-        const raw=await aiChat([{role:'system',content:LEARN_BASE_RULES},{role:'user',content:prompt}],{temperature:0.3,max_tokens:1400});
+        const prompt='أنشئ '+count+' أسئلة لاختبار فهم الطالب اعتمادًا حصريًا على النص أدناه. '+stageStyle(stage)+' '+kinds+' لا تضف معلومات من خارج النص.'+(avoid.length?' هذه أسئلة سبق أن سُئلها الطالب فلا تكررها ولا تعد صياغتها، واختر جوانب أخرى من النص: '+avoid.map(a=>'«'+a+'»').join(' ')+'.':' نوّع الأسئلة بين التعريفات والأمثلة والتطبيق.')+' أخرج JSON فقط بلا أي شرح خارجه بهذا الشكل: {"questions":[{"type":"mcq","q":"...","options":["...","...","..."],"answer":0,"why":"سبب قصير للإجابة الصحيحة"},{"type":"write","q":"...","model":"إجابة نموذجية قصيرة"}]} حيث answer فهرس الإجابة الصحيحة يبدأ من صفر.\nعنوان القسم: '+sec.title+'\nالنص:\n'+sec.text.slice(0,7000);
+        const raw=await aiChat([{role:'system',content:LEARN_BASE_RULES},{role:'user',content:prompt}],{temperature:0.7,max_tokens:1400});
         const parsed=parseJsonLoose(raw);
         questions=(Array.isArray(parsed?.questions)?parsed.questions:[]).slice(0,8).map(q=>{
           const text=String(q.q||q.question||'').trim().slice(0,400);
