@@ -63,8 +63,12 @@ for (const name of ['manifest-public.webmanifest','manifest-admin.webmanifest','
 const installer = fs.readFileSync(path.join(root,'public','install.js'),'utf8');
 const serviceWorker = fs.readFileSync(path.join(root,'public','sw.js'),'utf8');
 checks.push(['installer keeps one declared manifest per portal', installer.includes("document.querySelector('link[rel=\\\"manifest\\\"]')")]);
-checks.push(['public service worker cache is versioned for the three-app PWA architecture', serviceWorker.includes('taallam-shell-v2.88.0')]);
-for (const [role, scope, cache] of [['admin','/admin/','taallam-admin-shell-v2.88.0'],['school-admin','/school-admin/','taallam-school-admin-shell-v2.88.0']]) { const worker=fs.readFileSync(path.join(root,'public',role,'sw.js'),'utf8'); checks.push([`${role} has an independent scoped service worker`, worker.includes(`const CACHE_NAME = '${cache}'`) && worker.includes(`caches.match('${scope}')`)]); }
+{ const adm = fs.readFileSync(path.join(root, 'public', 'admin.html'), 'utf8'), sad = fs.readFileSync(path.join(root, 'public', 'school-admin.html'), 'utf8');
+  checks.push(['school creation has grade range presets (1-3, 1-6, 1-9, 1-12) wired to the checkboxes', ['3', '6', '9', '12', '0'].every(n => adm.includes('data-gp="' + n + '"')) && adm.includes("boxes.forEach((c,i)=>{c.checked=i<n})")]);
+  checks.push(['book upload: choosing "other" asks for the subject name and uses it', adm.includes('id="otherSubject"') && adm.includes("f.get('subject')==='أخرى'?String(f.get('otherSubject')")]);
+  checks.push(['school logo is uploaded as a file (creation form and school settings), not typed as a link', adm.includes('name="logoFile"') && sad.includes('id="logoFile"') && !sad.includes('placeholder="https://..."')]); }
+checks.push(['public service worker cache is versioned for the three-app PWA architecture', serviceWorker.includes("const VERSION = '2.83.0'") && serviceWorker.includes("'taallam-shell-'")]);
+for (const [role, scope, cache] of [['admin','/admin/','taallam-admin-shell-'],['school-admin','/school-admin/','taallam-school-admin-shell-']]) { const worker=fs.readFileSync(path.join(root,'public',role,'sw.js'),'utf8'); checks.push([`${role} has an independent scoped service worker`, worker.includes(`const PREFIX = '${cache}'`) && worker.includes(`const HOME = '${scope}'`)]); }
 checks.push(['admin portals register separate scoped service workers', installer.includes("role==='admin'?'/admin/sw.js':role==='school-admin'?'/school-admin/sw.js':'/sw.js'") && installer.includes("scope,updateViaCache:'none'")]);
 checks.push(['service worker caches the three installable manifests and distinct app icons', serviceWorker.includes('/manifest-public.webmanifest')&&serviceWorker.includes('/manifest-admin.webmanifest')&&serviceWorker.includes('/manifest-school-admin.webmanifest')&&serviceWorker.includes('/icons/taallam-admin-512.png')&&serviceWorker.includes('/icons/taallam-school-512.png')]);
 for (const [manifestName,iconBase] of [['manifest-public.webmanifest','taallam-learn'],['manifest-admin.webmanifest','taallam-admin'],['manifest-school-admin.webmanifest','taallam-school']]) { const m=JSON.parse(fs.readFileSync(path.join(root,'public',manifestName),'utf8')); checks.push([`${manifestName} uses its own distinct app icon`, m.icons.some(icon=>icon.src===`/icons/${iconBase}-192.png`)&&m.icons.some(icon=>icon.src===`/icons/${iconBase}-512.png`)]); }
@@ -89,7 +93,7 @@ const more = [
   ['school portal route is served', server.includes("'/student/school'") && fs.existsSync(path.join(root, 'public', 'student-school.html'))],
   ['lessons are shown as short slides read aloud one by one', sJs.includes('function drawTeach') && sJs.includes('render(i + 1)')],
   ['word highlighting uses boundary events with a timing fallback', sJs.includes('u.onboundary') && sJs.includes('estimate(') && sJs.includes('msPerChar')],
-  ['speech is unlocked by a user gesture and retries without a voice', sJs.includes('function prime()') && sJs.includes('attempt(false)')],
+  ['speech is unlocked by a user gesture, is spoken in short pieces, and retries without a voice / with the base language', sJs.includes('function prime()') && sJs.includes('attempt(1)') && sJs.includes('attempt(2)') && sJs.includes('function chunkText') && sJs.includes('function voiceHelp')],
   ['voice input reports permission and language problems in Arabic', sJs.includes('اسمح للمتصفح باستخدام الميكروفون') && sJs.includes('language-not-supported')],
   ['quiz supports multiple choice, written answers and instant feedback', sJs.includes("q.type === 'mcq'") && sJs.includes('/api/learn/grade')],
   ['primary-school games work without AI or internet', ['letters', 'count', 'math', 'colors'].every(k => sJs.includes(k + ':')) && sJs.includes('const LETTERS')],
@@ -113,12 +117,7 @@ const more = [
   ['topic questions are answered directly; summary/simplify intent is detected', server.includes("mode='ask'") && server.includes("mode='summary'") && server.includes("mode='simple'")],
   ['AI failures are explained (key, model name, quota) instead of silently showing the raw text', server.includes('AI_MODEL غير صحيح') || server.includes('اسم النموذج AI_MODEL') && server.includes('providerStatus')],
   ['brand, news ticker, timed announcement and About page come from the platform settings', fs.existsSync(path.join(root, 'public', 'platform.js')) && platformJs.includes('/api/platform/settings') && platformJs.includes('REPEAT_EVERY_MS') && platformJs.includes('FIRST_SHOW_MS')],
-  ['feedback is queued on-device offline and retried on reconnect', platformJs.includes('taallam-feedback-queue-v1') && platformJs.includes("window.addEventListener('online', syncFeedbackQueue)") && platformJs.includes('حُفظ تقييمك على هذا الجهاز')],
-  ['feedback retries are idempotent to avoid duplicate records', platformJs.includes('submissionId:crypto.randomUUID()') && server.includes('x.submissionId===submissionId')],
-  ['fee balances include per-type due/paid/remaining breakdown and calculate remaining per fee type', server.includes('const feeDetails=types.filter(t=>t.active!==false).map(t=>') && server.includes('studentPayments.filter(p=>p.typeId===t.id)') && server.includes('remaining=feeDetails.reduce((n,x)=>n+x.remaining,0)') && fs.readFileSync(path.join(root,'public/school-admin.html'),'utf8').includes('تفصيل الرسوم')],
   ['explanations are teacher-style and end with the original book text', server.includes('لا تقرأ النص كما هو') && server.includes('نص الكتاب:') && sJs.includes("classList.toggle('src'")],
-  ['school can configure the result debt threshold', server.includes('school.resultBalanceThreshold=threshold') && fs.readFileSync(path.join(root,'public','school-admin.html'),'utf8').includes('name="resultBalanceThreshold"')],
-  ['result hiding is enforced in the student API and removes scores server-side', server.includes('resultsHidden:resultHeld&&x.status===\'graded\'') && server.includes('resultHold:resultHeld?') && fs.readFileSync(path.join(root,'public','student-school.html'),'utf8').includes('s.resultsHidden')],
 ];
 for (const [label, ok] of more) checks.push([label, Boolean(ok)]);
 

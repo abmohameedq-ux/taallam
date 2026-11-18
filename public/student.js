@@ -19,7 +19,7 @@
   async function api(url, body) {
     const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 60000);
     try {
-      const r = await fetch(url, { method: body ? 'POST' : 'GET', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, signal: ctl.signal });
+      const r = await TQ.fetch(url, { method: body ? 'POST' : 'GET', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, signal: ctl.signal });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || 'تعذّر تنفيذ الطلب. حاول مرة أخرى.');
       return d;
@@ -108,13 +108,32 @@
     try { if (TTS.ok) speechSynthesis.cancel(); } catch {}
   }
   function mark(words, i) { words.forEach((w, j) => { w.classList.toggle('now', j === i); w.classList.toggle('said', j < i); }); }
+  // Engines (especially Android's) fail with "synthesis-failed" on long text, odd symbols or a missing voice.
+  // So: clean the text, speak it in short pieces one after another, and try several language settings.
+  function speakable(t) { return String(t).replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff\u0640]/g, '').replace(/[*_#`~^|<>{}\[\]\\]+/g, ' ').replace(/[\u{1F000}-\u{1FAFF}\u2600-\u27BF]/gu, ' ').replace(/\s+/g, ' ').trim(); }
+  function chunkText(t, max = 160) {
+    const parts = t.match(/[^.!؟?،,؛;:]+[.!؟?،,؛;:]*\s*/g) || [t], out = []; let cur = '';
+    for (const p of parts) {
+      if (cur && (cur + p).length > max) { out.push(cur); cur = ''; }
+      if (p.length > max) { let rest = p; while (rest.length > max) { let k = rest.lastIndexOf(' ', max); if (k < 40) k = max; out.push(rest.slice(0, k)); rest = rest.slice(k); } cur = rest; } else cur += p;
+    }
+    if (cur.trim()) out.push(cur); return out;
+  }
   function speakDevice(text, words, cb) {
+    const clean = speakable(text), chunks = chunkText(clean);
+    if (chunks.length <= 1) return speakDeviceOne(clean || text, words, cb);
+    const groups = chunks.map(() => []), bounds = []; let acc = 0; for (const c of chunks) { bounds.push(acc); acc += c.length; }
+    let pos = 0; for (const w of words) { const k = clean.indexOf(w.textContent, pos); const at = k < 0 ? pos : k; pos = at + w.textContent.length; let ci = 0; for (let i = 0; i < bounds.length; i++) if (bounds[i] <= at) ci = i; groups[ci].push(w); }
+    const run = i => { if (i >= chunks.length) { cb.onEnd && cb.onEnd(); return; } speakDeviceOne(chunks[i], groups[i], { onEnd: () => run(i + 1), onFail: cb.onFail }); };
+    run(0);
+  }
+  function speakDeviceOne(text, words, cb) {
     const starts = []; let pos = 0;
     for (const w of words) { const k = text.indexOf(w.textContent, pos); starts.push(k < 0 ? pos : k); pos = (k < 0 ? pos : k) + w.textContent.length; }
-    const attempt = useVoice => {
-      const token = {}; TTS.cur = token; TTS.reading = true; TTS.usingCloud = false;
+    const attempt = level => {
+      const useVoice = level === 0, token = {}; TTS.cur = token; TTS.reading = true; TTS.usingCloud = false;
       const u = new SpeechSynthesisUtterance(text); u.rate = TTS.rate; u.pitch = P.stage === 'kids' ? 1.12 : 1;
-      u.lang = useVoice && TTS.voice ? TTS.voice.lang : (P.dialect || 'ar-SA'); if (useVoice && TTS.voice) u.voice = TTS.voice;
+      u.lang = useVoice && TTS.voice ? TTS.voice.lang : (level >= 2 ? 'ar' : (P.dialect || 'ar-SA')); if (useVoice && TTS.voice) u.voice = TTS.voice;
       let started = false, gotBoundary = false, t0 = 0, watch = null;
       window.__utt = u; // keep a reference: some browsers drop events if the utterance is garbage-collected
       const live = () => TTS.cur === token;
@@ -136,17 +155,25 @@
       u.onerror = e => {
         if (!live()) return; if (e.error === 'canceled' || e.error === 'interrupted') return;
         clearEst(); clearTimeout(watch); TTS.lastError = 'device:' + (e.error || 'error');
-        if (useVoice && TTS.voice) { attempt(false); return; }
+        if (level === 0 && TTS.voice) { attempt(1); return; }
+        if (level === 1) { attempt(2); return; }
         TTS.reading = false; cb.onFail && cb.onFail(e.error || 'error');
       };
       watch = setTimeout(() => {
         if (!live() || started) return; try { speechSynthesis.cancel(); } catch {}
-        if (useVoice && TTS.voice) attempt(false); else { TTS.lastError = 'device:no-start'; TTS.reading = false; cb.onFail && cb.onFail('no-start'); }
+        if (level === 0 && TTS.voice) attempt(1); else if (level === 1) attempt(2); else { TTS.lastError = 'device:no-start'; TTS.reading = false; cb.onFail && cb.onFail('no-start'); }
       }, 4000);
       try { speechSynthesis.cancel(); } catch {}
       setTimeout(() => { if (live()) { try { speechSynthesis.speak(u); } catch { TTS.lastError = 'device:speak-failed'; cb.onFail && cb.onFail('speak-failed'); } } }, 90);
     };
-    attempt(true);
+    attempt(TTS.voice ? 0 : 1);
+  }
+  // a clear Arabic explanation instead of an English error code
+  function voiceHelp(why) {
+    const w = String(why || '');
+    if (/synthesis|no-start|speak-failed|language|voice/.test(w) || !w) return 'الصوت العربي غير جاهز على هذا الجهاز. على أندرويد: الإعدادات ← الإدارة العامة ← اللغة ← تحويل النص إلى كلام ← محرك Google ← ثبّت بيانات الصوت العربي. ثم افتح ⚙️ إعداداتي ← «جرّب الصوت».';
+    if (/not-allowed/.test(w)) return 'المتصفح منع الصوت. اضغط أي زر في الصفحة ثم أعد المحاولة.';
+    return 'تعذّر تشغيل الصوت (' + w + '). افتح ⚙️ إعداداتي ← «جرّب الصوت» لمعرفة السبب.';
   }
   async function cloudAudio(text, track) {
     if (CAUDIO.has(text)) return CAUDIO.get(text);
@@ -257,7 +284,7 @@
       ['c3', '📝', 'اختبرني', 'أسئلة وتصحيح فوري', () => openLearn('quiz')],
       ['c4', '🎮', 'ألعاب', 'حروف وأرقام وألوان', openGames],
       ['c5', '⭐', 'إنجازاتي', 'نجومي وشاراتي', openAchievements],
-      ['c6', '🏫', 'مدرستي', 'واجباتي ومنشورات المعلم', null]
+      ['c6', '🏫', 'مدرستي', 'درجاتي وواجباتي (اربط بريدك)', null]
     ];
     if (P.stage === 'kids') { const g = tiles.splice(3, 1)[0]; tiles.splice(1, 0, g); }
     const grid = $('#grid'); grid.replaceChildren();
@@ -312,8 +339,15 @@
     if (P.grade && !opts.showAll) { const f = books.filter(b => !b.grade || sameGrade(b.grade, P.grade)); if (f.length) { list = f; filtered = true; } }
     const groups = new Map(); for (const b of list) { const k = b.subject || 'كتب أخرى'; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(b); }
     const nodes = [el('p', { class: 'bubble center', text: groups.size > 1 ? 'ماذا تريد أن تذاكر؟ اختر الكتاب' : 'اختر الكتاب' })];
-    nodes.push(el('button', { class: 'big primary', type: 'button', onclick: () => { const allBook={id:'__all__',title:'كل الكتب',subject:'جميع المواد',grade:P.grade||''}; show('اسأل من كل الكتب', () => screenPick(allBook, purpose, {...opts, allBooks:true})); } }, el('span', {class:'em',text:'🌐'}), el('div', {}, 'كل الكتب', el('small', {text:'أسئلة متنوعة من جميع المواد والكتب المتاحة'}))));
     if (filtered) nodes.push(el('div', { class: 'hint', text: 'كتب ' + P.grade }));
+    // "all books" first, then one button per subject: questions and explanations can come from any book in that scope
+    const gradeArg = P.grade || '';
+    const openScope = (id, title) => { prime(); show(title, () => screenPick({ id, title, scope: true }, purpose, opts)); };
+    if (list.length > 1) {
+      const chips = [el('button', { class: 'chip-scope all', type: 'button', onclick: () => openScope('all', 'كل الكتب') }, '📚 كل الكتب')];
+      for (const [subject, arr] of groups) chips.push(el('button', { class: 'chip-scope', type: 'button', onclick: () => arr.length === 1 ? (P.lastBook = arr[0].id, save(), show(arr[0].title, () => screenPick(arr[0], purpose, opts))) : openScope('subject:' + subject, 'كتب ' + subject) }, subjEm(subject) + ' ' + subject));
+      nodes.push(el('div', { class: 'scope-row', role: 'group', 'aria-label': 'اختر مادة أو كل الكتب' }, chips));
+    }
     for (const [subject, arr] of groups) {
       if (groups.size > 1) nodes.push(el('h3', { class: 'sub', text: subjEm(subject) + ' ' + subject }));
       for (const b of arr) nodes.push(el('button', { class: 'big', type: 'button', onclick: () => { P.lastBook = b.id; save(); show(b.title, () => screenPick(b, purpose, opts)); } },
@@ -325,13 +359,16 @@
   function screenPick(book, purpose, opts) {
     const input = el('input', { class: 'input', placeholder: purpose === 'quiz' ? 'مثال: اختبرني في الدرس الأول' : 'مثال: اشرح لي الوحدة الأولى', 'aria-label': 'اكتب طلبك', maxlength: '200' });
     const go = () => { const q = input.value.trim(); if (!q) { toast('اكتب أو قل ما تريد أولًا'); return; } prime(); chooseSection({ bookId: book.id, bookTitle: book.title, query: q, title: q }, purpose); };
+    const lib = (LIB || []).find(b => b.id === book.id) || book, canRead = !book.scope && lib.hasPdf !== false && (lib.pages || lib.hasPdf);
     const mic = el('button', { class: 'mic', type: 'button', 'aria-label': 'تحدّث', 'aria-pressed': 'false', text: '🎤', onclick: () => { prime(); listen(mic, input, t => { input.value = t; go(); }); } });
     input.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
     setBody(
       el('p', { class: 'bubble center', text: purpose === 'quiz' ? 'ماذا تريد أن أختبرك فيه؟' : (opts.mic ? 'اضغط الميكروفون وقل ما تريد' : 'ماذا تريد أن تتعلم؟') }),
       el('div', { class: 'row' }, mic, input), el('button', { class: 'btn', type: 'button', text: purpose === 'quiz' ? '📝 ابدأ الاختبار' : '🔊 اشرح لي', onclick: go }),
-      el('button', { class: 'big primary', type: 'button', onclick: () => show('الوحدات والدروس', () => screenUnits(book, purpose)) }, el('span', { class: 'em', text: '📚' }), el('div', {}, 'اختر من الوحدات والدروس', el('small', { text: 'أسهل طريقة' }))),
-      (LIB && LIB.length > 1) ? el('button', { class: 'btn alt', type: 'button', text: 'تغيير الكتاب', onclick: () => show('اختر الكتاب', () => screenBooks(purpose, { ...opts, change: true }), true) }) : null);
+      book.scope ? el('button', { class: 'big primary', type: 'button', onclick: () => { prime(); startQuiz({ bookId: book.id, bookTitle: book.title, title: book.title, mixed: true }, 5); } }, el('span', { class: 'em', text: '🎲' }), el('div', {}, 'اختبرني بأسئلة متنوعة', el('small', { text: book.id === 'all' ? 'أسئلة من مواد وكتب مختلفة' : 'أسئلة من كل كتب هذه المادة' })))
+        : el('button', { class: 'big primary', type: 'button', onclick: () => show('الوحدات والدروس', () => screenUnits(book, purpose)) }, el('span', { class: 'em', text: '📚' }), el('div', {}, 'اختر من الوحدات والدروس', el('small', { text: 'أسهل طريقة' }))),
+      canRead ? el('button', { class: 'big', type: 'button', onclick: () => show('الكتاب', () => screenReader(book)) }, el('span', { class: 'em', text: '📖' }), el('div', {}, 'اقرأ الكتاب كاملًا', el('small', { text: 'من الغلاف إلى آخر صفحة بصوره ورسوماته' }))) : null,
+      (LIB && LIB.length > 1) ? el('button', { class: 'btn alt', type: 'button', text: 'تغيير الكتاب أو المادة', onclick: () => show('اختر الكتاب', () => screenBooks(purpose, { ...opts, change: true }), true) }) : null);
     if (opts.mic) setTimeout(() => mic.focus({ preventScroll: true }), 300);
   }
   async function screenUnits(book, purpose) {
@@ -340,6 +377,7 @@
     if (sid !== S.sid) return;
     const choose = (s, em) => el('button', { class: 'big', type: 'button', onclick: () => { prime(); chooseSection({ bookId: book.id, bookTitle: book.title, sectionId: s.id, title: s.title }, purpose); } }, el('span', { class: 'em', text: em }), s.title);
     const nodes = [];
+    if (o.intro) nodes.push(choose(o.intro, '🏛️'));
     for (const u of o.units) nodes.push(el('button', { class: 'big', type: 'button', onclick: () => show(u.title, () => screenUnit(book, u, purpose)) }, el('span', { class: 'em', text: '📘' }), el('div', {}, u.title, el('small', { text: u.lessons.length ? AR(u.lessons.length) + ' دروس' : 'الوحدة كاملة' }))));
     for (const l of o.looseLessons) nodes.push(choose(l, '📖'));
     for (const p of o.parts) nodes.push(choose(p, '📄'));
@@ -349,15 +387,103 @@
     const choose = (s, em, label) => el('button', { class: 'big' + (em === '🌟' ? ' primary' : ''), type: 'button', onclick: () => { prime(); chooseSection({ bookId: book.id, bookTitle: book.title, sectionId: s.id, title: s.title }, purpose); } }, el('span', { class: 'em', text: em }), label || s.title);
     setBody(choose(u, '🌟', purpose === 'quiz' ? 'اختبرني في الوحدة كاملة' : 'اشرح الوحدة كاملة'), u.lessons.map(l => choose(l, '📖')));
   }
+
+
+  // ---------- interactive experiments linked to book pages ----------
+  const INTER = {};
+  async function getInteractives(bookId) { if (!INTER[bookId]) { try { INTER[bookId] = (await api('/api/learn/interactives?bookId=' + encodeURIComponent(bookId))).items || []; } catch { INTER[bookId] = []; } } return INTER[bookId]; }
+  const loadedScripts = {};
+  const loadScript = url => loadedScripts[url] || (loadedScripts[url] = new Promise((res, rej) => { const s = document.createElement('script'); s.src = url; s.onload = res; s.onerror = () => { delete loadedScripts[url]; rej(new Error('تعذّر تحميل التجربة. تحقق من الاتصال.')); }; document.head.append(s); }));
+  const SIM_VER = '2.83.0';
+  // opened from a book page: shows where it comes from, the experiment itself, and a way back to the exact page
+  async function screenSim(item, book) {
+    const sid = S.sid; setBody(loading('أجهّز التجربة…'));
+    try { await loadScript('/sim/templates.js?v=' + SIM_VER); await loadScript('/sim/render.js?v=' + SIM_VER); } catch (e) { if (sid === S.sid) setBody(errorBox(e.message, () => screenSim(item, book))); return; }
+    if (sid !== S.sid) return;
+    const host = el('div', { class: 'sim-host' }), page = item.pages[0], read = (P.read && P.read[book.id]) || page;
+    const backBtn = el('button', { class: 'btn', type: 'button', text: '↩ العودة إلى صفحة ' + AR(read) + ' من الكتاب', onclick: back });
+    const toSrc = item.pages.length ? item.pages.map(n => el('button', { class: 'chip', type: 'button', text: 'صفحة ' + AR(n), onclick: () => { P.read = P.read || {}; P.read[book.id] = n; save(); back(); } })) : [];
+    setBody(
+      el('div', { class: 'sim-src' }, el('b', { text: '📖 مصدر التجربة' }), el('p', { text: 'كتاب «' + (book.title || item.bookTitle) + '» — ' + (item.pages.length > 1 ? 'الصفحات ' + item.pages.map(AR).join('، ') : 'صفحة ' + AR(page)) }),
+        item.excerpt ? el('blockquote', { class: 'sim-quote' }, el('small', { text: 'من نص الكتاب:' }), el('div', { text: item.excerpt })) : null,
+        el('small', { class: 'hint', text: 'التجربة أدناه مولّدة من قوانين العلم وليست نصًّا من الكتاب، وقد راجعتها الإدارة.' }), toSrc.length ? el('div', { class: 'rd-tools' }, toSrc) : null),
+      el('h3', { class: 'sim-title', text: item.title }), host, el('div', { class: 'ctrl' }, backBtn));
+    try { window.SIM.mount(host, item.template, item.params, { autoplay: false }); } catch (e) { host.replaceChildren(errorBox('تعذّر تشغيل هذه التجربة على جهازك.', () => screenSim(item, book))); }
+  }
+  // ---------- full book reader: real page images (figures included), contents with page numbers ----------
+  async function screenReader(book, startPage, sectionId) {
+    const exps = await getInteractives(book.id);
+    const sid = S.sid; setBody(loading('أفتح الكتاب…'));
+    let info; try { info = await api('/api/learn/book-info?bookId=' + encodeURIComponent(book.id)); } catch (e) { if (sid === S.sid) setBody(errorBox(e.message, () => screenReader(book, startPage, sectionId)), el('button', { class: 'btn alt', text: 'رجوع', onclick: back })); return; }
+    if (sid !== S.sid) return;
+    const total = info.pages || 0; if (!total) { setBody(errorBox('تعذّر معرفة صفحات هذا الكتاب.', () => screenReader(book, startPage, sectionId))); return; }
+    P.read = P.read || {};
+    const secPage = sectionId ? (info.toc.find(t => t.id === sectionId) || {}).page : null;
+    P.readScroll = P.readScroll || {};
+    let page = Math.max(1, Math.min(total, startPage || secPage || P.read[book.id] || 1)), zoom = false, restoreScroll = (!startPage && !sectionId) ? (P.readScroll[book.id + ':' + page] || null) : null;
+    const want = Math.min(window.innerWidth || 400, 900) * (window.devicePixelRatio || 1), W = want > 800 ? 1200 : (want > 520 ? 900 : 600);
+    const src = n => '/api/learn/page?bookId=' + encodeURIComponent(book.id) + '&n=' + n + '&w=' + W;
+    const img = el('img', { class: 'rd-img', alt: '', decoding: 'async' });
+    const frame = el('div', { class: 'rd-frame' }, img), status = el('div', { class: 'hint', role: 'status' });
+    const count = el('span', { class: 'rd-count' });
+    const jump = el('input', { class: 'input rd-jump', type: 'number', min: '1', max: String(total), inputmode: 'numeric', 'aria-label': 'اذهب إلى صفحة' });
+    const prev = el('button', { class: 'btn alt', type: 'button', text: '▶ السابق', onclick: () => go(page - 1) });
+    const next = el('button', { class: 'btn', type: 'button', text: 'التالي ◀', onclick: () => go(page + 1) });
+    const tocBox = el('div', { class: 'rd-toc', hidden: true });
+    function curSection() { let cur = null; for (const t of info.toc) if (t.page != null && t.page <= page) cur = t; return cur; }
+    function go(n) {
+      page = Math.max(1, Math.min(total, Math.round(Number(n) || 1))); status.textContent = 'أحمّل الصفحة…'; img.classList.remove('err');
+      img.onload = () => { status.textContent = ''; if (restoreScroll != null) { frame.scrollTop = restoreScroll; restoreScroll = null; } }; img.onerror = () => { status.textContent = 'تعذّر تحميل الصفحة. تأكد من الاتصال ثم اضغط «إعادة المحاولة».'; img.classList.add('err'); };
+      img.src = src(page); img.alt = 'صفحة ' + page + ' من ' + total;
+      const cs = curSection(); count.textContent = 'صفحة ' + AR(page) + ' من ' + AR(total) + (cs && cs.kind !== 'cover' ? ' — ' + cs.title : '');
+      prev.disabled = page <= 1; next.disabled = page >= total; jump.value = '';
+      stopSpeech(); listenBtn.textContent = '🔊 اقرأ الصفحة'; P.read[book.id] = page; save(); if (restoreScroll == null) frame.scrollTop = 0; drawExps();
+      for (const k of [page + 1, page + 2]) if (k <= total) { const p = new Image(); p.src = src(k); }
+    }
+    jump.addEventListener('keydown', e => { if (e.key === 'Enter' && jump.value) go(jump.value); });
+    const goBtn = el('button', { class: 'btn alt', type: 'button', text: 'اذهب', onclick: () => { if (jump.value) go(jump.value); } });
+    function drawToc() {
+      tocBox.replaceChildren(...info.toc.map(t => el('button', { class: 'rd-toc-item l' + (t.level || 0), type: 'button', onclick: () => { tocBox.hidden = true; go(t.page || 1); } }, el('span', { text: t.title }), el('small', { text: t.page ? 'ص ' + AR(t.page) : '' }))));
+    }
+    drawToc();
+    const tocBtn = el('button', { class: 'btn alt', type: 'button', text: '📑 الفهرس', 'aria-expanded': 'false', onclick: () => { tocBox.hidden = !tocBox.hidden; tocBtn.setAttribute('aria-expanded', String(!tocBox.hidden)); if (!tocBox.hidden) tocBox.scrollIntoView({ block: 'nearest' }); } });
+    const listenBtn = el('button', { class: 'btn alt', type: 'button', text: '🔊 اقرأ الصفحة', onclick: async () => {
+      if (TTS.reading) { stopSpeech(); listenBtn.textContent = '🔊 اقرأ الصفحة'; return; }
+      listenBtn.disabled = true;
+      try {
+        const d = await api('/api/learn/page-text?bookId=' + encodeURIComponent(book.id) + '&n=' + page);
+        if (!d.text || d.text.length < 15) { toast('هذه الصفحة صورة بلا نص يمكن قراءته. اقرأها من الصورة.'); return; }
+        listenBtn.textContent = '⏹ إيقاف القراءة';
+        speak(d.text.slice(0, 3500), [], { onEnd: () => { listenBtn.textContent = '🔊 اقرأ الصفحة'; }, onFail: why => { toast(voiceHelp(why)); listenBtn.textContent = '🔊 اقرأ الصفحة'; } });
+      } catch (e) { toast(e.message); } finally { listenBtn.disabled = false; }
+    } });
+    const zoomBtn = el('button', { class: 'btn alt', type: 'button', text: '🔍 تكبير', onclick: () => { zoom = !zoom; frame.classList.toggle('zoom', zoom); zoomBtn.textContent = zoom ? '🔍 تصغير' : '🔍 تكبير'; } });
+    const retry = el('button', { class: 'btn alt', type: 'button', text: 'إعادة المحاولة', onclick: () => go(page) });
+    let sx = null, sy = 0;
+    frame.addEventListener('touchstart', e => { if (zoom || e.touches.length > 1) { sx = null; return; } sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+    frame.addEventListener('touchend', e => { if (sx == null) return; const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy; sx = null; if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return; const rightIsNext = (P.swipe || 'right') === 'right'; go((dx > 0 ? rightIsNext : !rightIsNext) ? page + 1 : page - 1); }, { passive: true });
+    let scrollT = null; frame.addEventListener('scroll', () => { clearTimeout(scrollT); scrollT = setTimeout(() => { P.readScroll[book.id + ':' + page] = frame.scrollTop; save(); }, 400); }, { passive: true });
+    const expBox = el('div', { class: 'rd-exps' });
+    function drawExps() {
+      const here = exps.filter(x => x.pages.includes(page)), others = exps.filter(x => !x.pages.includes(page));
+      const open = x => () => { P.readScroll[book.id + ':' + page] = frame.scrollTop; save(); show('تجربة تفاعلية', () => screenSim(x, book)); };
+      expBox.replaceChildren(...(here.length ? [el('div', { class: 'hint', text: 'تجارب مرتبطة بهذه الصفحة:' }), ...here.map(x => el('button', { class: 'big', type: 'button', onclick: open(x) }, el('span', { class: 'em', text: '🧪' }), el('div', {}, x.title, el('small', { text: 'جرّب المفهوم بنفسك' }))))] : []),
+        ...(others.length ? [el('details', { class: 'rd-more' }, el('summary', { text: '🧪 كل تجارب الكتاب (' + AR(exps.length) + ')' }), ...others.map(x => el('button', { class: 'rd-toc-item l0', type: 'button', onclick: () => go(x.pages[0]) }, el('span', { text: x.title }), el('small', { text: 'ص ' + AR(x.pages[0]) }))))] : []));
+    }
+    S.keyHandler = e => { if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return; if (e.key === 'ArrowLeft') go(page + 1); else if (e.key === 'ArrowRight') go(page - 1); };
+    setBody(el('div', { class: 'rd-bar' }, count), frame, status, el('div', { class: 'ctrl' }, prev, next), expBox, el('div', { class: 'rd-tools' }, tocBtn, listenBtn, zoomBtn, jump, goBtn, retry), tocBox,
+      !info.hasText ? el('div', { class: 'hint', text: 'هذا الكتاب صفحاته مصوّرة، لذلك لا يظهر له فهرس بأرقام الصفحات. تنقّل بالأسهم أو بكتابة رقم الصفحة.' }) : null);
+    go(page);
+  }
   function chooseSection(ctx, purpose) { S.ctx = ctx; if (purpose === 'quiz') startQuiz(ctx, 5); else startTeach(ctx, 'explain'); }
 
   // ---------- teaching ----------
   async function startTeach(ctx, mode, question, replace) {
     prime(); S.ctx = ctx; const sid = ++S.sid; setTransient(loading(mode === 'summary' ? 'أجهّز الملخص…' : mode === 'simple' ? 'أبسّط الشرح…' : 'الهيثم يجهّز الشرح…'));
     try {
-      const d = await api('/api/learn/teach', { bookId: ctx.bookId, sectionId: ctx.sectionId || undefined, query: (mode === 'ask' && !ctx.sectionId) ? question : (ctx.query || ctx.title), mode, question, stage: P.stage === 'kids' ? 'kids' : 'reader' });
+      const d = await api('/api/learn/teach', { bookId: ctx.bookId, grade: P.grade || undefined, sectionId: ctx.sectionId || undefined, query: (mode === 'ask' && !ctx.sectionId) ? question : (ctx.query || ctx.title), mode, question, stage: P.stage === 'kids' ? 'kids' : 'reader' });
       if (sid !== S.sid) return;
-      S.ctx = { ...ctx, sectionId: d.sectionId || undefined, title: d.title, query: d.sectionId ? undefined : (ctx.query || ctx.title) };
+      S.ctx = { ...ctx, bookId: /^(all|subject:)/.test(ctx.bookId) && d.bookId ? d.bookId : ctx.bookId, bookTitle: d.bookTitle || ctx.bookTitle, sectionId: d.sectionId || undefined, title: d.title, query: d.sectionId ? undefined : (ctx.query || ctx.title) };
       show(d.title, () => drawTeach(d), Boolean(replace));
     } catch (e) { if (sid === S.sid) setTransient(errorBox(e.message, () => startTeach(ctx, mode, question, replace)), el('button', { class: 'btn alt', text: 'رجوع', onclick: back })); }
   }
@@ -373,7 +499,7 @@
       play.textContent = '⏸ إيقاف';
       prefetchNext(slides[i + 1] && slides[i + 1].t); speak(slides[i].t, words, {
         onEnd() { play.textContent = '🔊 اقرأ'; if (!auto) return; if (i < last) render(i + 1); else finish(); },
-        onFail(why) { auto = false; play.textContent = '🔊 اقرأ'; toast('تعذّر تشغيل الصوت (' + why + '). افتح ⚙️ إعداداتي ← «جرّب الصوت» لمعرفة السبب.'); }
+        onFail(why) { auto = false; play.textContent = '🔊 اقرأ'; toast(voiceHelp(why)); }
       });
     }
     function render(n) {
@@ -403,7 +529,7 @@
     const act = (em, label, fn) => el('button', { class: 'act', type: 'button', onclick: fn }, el('span', { text: em }), label);
     setBody(
       d.notice ? el('div', { class: 'notice', text: d.notice }) : null, dots, box, el('div', { class: 'hint', text: 'اسحب الشريحة يمينًا أو يسارًا للتنقّل' }), el('div', { class: 'ctrl' }, prev, play, next),
-      el('div', { class: 'actions' }, act('🔁', 'أعد', () => { finished = false; auto = true; render(0); }), act('🧒', 'بسّط', () => startTeach(S.ctx, 'simple', '', true)), act('📝', 'ملخص', () => startTeach(S.ctx, 'summary', '', true)), quizBtn, act('💬', 'اسأل', () => show('اسأل عن الدرس', screenAsk)))
+      el('div', { class: 'actions' }, act('🔁', 'أعد', () => { finished = false; auto = true; render(0); }), act('🧒', 'بسّط', () => startTeach(S.ctx, 'simple', '', true)), act('📝', 'ملخص', () => startTeach(S.ctx, 'summary', '', true)), quizBtn, act('💬', 'اسأل', () => show('اسأل عن الدرس', screenAsk)), (!/^(all|subject:)/.test(S.ctx.bookId || '') && (LIB || []).some(b => b.id === S.ctx.bookId && b.hasPdf)) ? act('📖', 'صفحات الدرس', () => show('الكتاب', () => screenReader((LIB || []).find(b => b.id === S.ctx.bookId), null, S.ctx.sectionId))) : null)
     );
     document.body.classList.toggle('kids', P.stage === 'kids'); render(0);
   }
@@ -420,7 +546,7 @@
     prime(); S.ctx = ctx; const sid = ++S.sid; setTransient(loading('أجهّز أسئلتك…'));
     const qkey = (ctx.bookId || '') + ':' + (ctx.sectionId || ctx.query || ctx.title || '');
     try {
-      const d = await api('/api/learn/quiz', { bookId: ctx.bookId, sectionId: ctx.sectionId || undefined, query: ctx.sectionId ? undefined : (ctx.query || ctx.title), count, stage: P.stage === 'kids' ? 'kids' : 'reader', avoid: ((P.asked || {})[qkey] || []).slice(-12) });
+      const d = await api('/api/learn/quiz', { bookId: ctx.bookId, grade: P.grade || undefined, sectionId: ctx.sectionId || undefined, query: (ctx.sectionId || ctx.mixed) ? undefined : (ctx.query || ctx.title), count, stage: P.stage === 'kids' ? 'kids' : 'reader', avoid: ((P.asked || {})[qkey] || []).slice(-12) });
       if (sid !== S.sid) return;
       P.asked = P.asked || {}; P.asked[qkey] = [...(P.asked[qkey] || []), ...d.questions.map(q => String(q.q).slice(0, 100))].slice(-30);
       const keys = Object.keys(P.asked); if (keys.length > 40) delete P.asked[keys[0]]; save();
@@ -442,6 +568,7 @@
         const btns = q.options.map((o, k) => el('button', { class: 'opt', type: 'button', onclick: () => {
           if (locked) return; locked = true; const ok = k === q.answer; btns.forEach((b, j) => { b.disabled = true; if (j === q.answer) b.classList.add('right'); else if (j === k) b.classList.add('wrong'); });
           if (ok) { correct++; beep('ok'); } else beep('bad');
+          if (P.sound) say(ok ? pick1(PRAISE_SAY) : 'ليست الإجابة الصحيحة. الإجابة الصحيحة هي: ' + q.options[q.answer]);
           const f = feedback(ok, (ok ? '🎉 أحسنت! إجابة صحيحة.' : '💪 لا بأس، الإجابة الصحيحة: ' + q.options[q.answer]) + (q.why ? '\n' + q.why : '')); f.style.whiteSpace = 'pre-line';
           holder.append(f, nextBtn());
         } }, el('b', { text: letters[k] }), o));
@@ -455,13 +582,14 @@
           try {
             const g = await api('/api/learn/grade', { q: q.q, model: q.model, answer: ta.value.trim() });
             if (g.score === 2) { correct++; beep('ok'); } else if (g.score === 1) { partial++; beep('ok'); } else beep('bad');
+            if (P.sound) say(g.score === 2 ? pick1(PRAISE_SAY) : g.score === 1 ? 'إجابتك جيدة. أضف قليلًا' : 'حاول مرة أخرى يا بطل');
             check.remove(); ta.disabled = true;
             holder.append(feedback(g.score >= 1, (g.score === 2 ? '🎉 ممتاز! ' : g.score === 1 ? '👍 إجابتك جيدة وتحتاج قليلًا من الإضافة. ' : '💪 حاول مرة أخرى لاحقًا. ') + (g.feedback || '')), g.score < 2 ? el('div', { class: 'notice', text: 'إجابة الكتاب: ' + q.model }) : null, nextBtn());
           } catch (e) { locked = false; check.disabled = false; check.textContent = '✅ صحّح إجابتي'; toast(e.message); }
         } });
         holder.append(el('div', { class: 'row' }, mic, ta), check);
       }
-      setBody(progress, el('div', { class: 'hint', text: 'السؤال ' + AR(idx + 1) + ' من ' + AR(qs.length) }), el('div', { class: 'q', text: q.q }), listen1, holder);
+      setBody(progress, el('div', { class: 'hint', text: 'السؤال ' + AR(idx + 1) + ' من ' + AR(qs.length) }), q.subject ? el('div', { class: 'hint', text: 'من مادة ' + q.subject }) : null, el('div', { class: 'q', text: q.q }), listen1, holder);
       if (P.stage === 'kids') setTimeout(() => say(q.q), 350);
     }
     function results() {
@@ -601,6 +729,14 @@
   api('/api/school-member/me').then(d => {
     if (d && d.authenticated && d.member && d.member.role === 'student' && d.member.grade) { S.school = d.school; if (!P.gradeManual && P.grade !== d.member.grade) { P.grade = d.member.grade; save(); } }
   }).catch(() => {});
+  // open a book straight from a link such as /student#read=BOOK_ID&p=12 (used by the school portal's library)
+  async function openFromHash() {
+    const m = /^#read=([A-Za-z0-9_-]+)(?:&p=(\d+))?/.exec(location.hash); if (!m) return;
+    try { const b = (await getLib()).find(x => x.id === m[1]); if (b) openSheet('الكتاب', () => screenReader(b, m[2] ? Number(m[2]) : null)); } catch { /* library unavailable */ }
+  }
+  openFromHash(); window.addEventListener('hashchange', openFromHash);
+  // the library changed (book added/removed from the admin panel): refresh the list without disturbing the open screen
+  if (window.LIVE) LIVE.on(d => { if (!d.s || d.s === 'platform' || d.s === 'poll' || d.s === 'online' || d.s === 'wake') { api('/api/learn/library').then(r => { LIB = r.books; }).catch(() => {}); } });
   window.addEventListener('pagehide', stopSpeech);
   window.__taallam = { speak, stopSpeech, P: () => P, el };
 })();

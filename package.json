@@ -1,16 +1,17 @@
 {
   "name": "taallam-ma-alhaitham",
-  "version": "2.88.0",
+  "version": "2.83.0",
   "private": true,
   "description": "منصة تعليمية عربية مع متابعة تعليمية تفاعلية واختبارات تكاملية",
   "scripts": {
     "start": "node server.js",
-    "test": "node scripts/learn-check.js && node scripts/pdf-smoke-check.js && node scripts/http-smoke-check.js && node scripts/learn-api-check.js"
+    "test": "node scripts/learn-check.js && node scripts/pdf-smoke-check.js && node scripts/http-smoke-check.js && node scripts/learn-api-check.js && node scripts/features-check.js && node scripts/bookjobs-check.js && node scripts/sims-check.js"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
-    "pdf-parse": "1.1.1"
+    "pdf-parse": "1.1.1",
+    "web-push": "^3.6.7"
   }
 }
