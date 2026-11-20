@@ -60,5 +60,17 @@
       paint(); return b;
     }
   };
-  window.TOOLS = { esc, fm, print, statement, receipt, csv }; window.PUSH = PUSH;
+  // ---- transcript ("كشف الدرجات"): subjects as rows, only the exams that exist as columns ----
+  function transcriptTable(t, printing) {
+    if (!t.rows.length) return '<p class="muted">لا توجد درجات مسجلة بعد.</p>';
+    const bx = printing ? 'border:1px solid #cfd8d2;padding:7px 9px;text-align:right' : 'border-bottom:1px solid #e0e9df;padding:8px 9px;text-align:right', hd = 'background:#f1f5ef;font-weight:700;white-space:normal';
+    const head = '<tr><th style="' + bx + ';' + hd + '">المادة</th>' + t.columns.map(c => '<th style="' + bx + ';' + hd + '">' + esc(c.label) + '</th>').join('') + '<th style="' + bx + ';' + hd + '">المجموع</th><th style="' + bx + ';' + hd + '">النسبة</th></tr>';
+    const body = t.rows.map(r => '<tr><td style="' + bx + ';font-weight:700">' + esc(r.subject) + '</td>' + t.columns.map(c => { const x = r.cells[c.key]; return '<td style="' + bx + '">' + (!x ? '—' : x.hidden ? '<span style="filter:blur(6px);user-select:none">88 / 100</span>' : fm(x.score) + ' / ' + fm(x.max)) + '</td>'; }).join('')
+      + '<td style="' + bx + '">' + (r.total === null ? '<span style="filter:blur(6px);user-select:none">88</span>' : fm(r.total) + ' / ' + fm(r.max)) + '</td><td style="' + bx + '">' + (r.percent === null ? '—' : fm(r.percent) + '٪') + '</td></tr>').join('');
+    return (t.hidden ? '<div style="background:#fff7e0;border:2px solid #e6c36a;border-radius:14px;padding:10px 14px;margin:8px 0">🔒 ' + esc(t.hiddenReason) + '</div>' : '') + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:420px">' + head + body + '</table></div>';
+  }
+  function transcriptPrint(t) {
+    print('كشف درجات ' + t.studentName, head(t.schoolName, 'كشف الدرجات' + (t.year ? ' — العام الدراسي ' + t.year : '')) + '<div class="box"><b>الطالب:</b> ' + esc(t.studentName) + ' &nbsp; <b>الصف:</b> ' + esc([t.grade, t.section].filter(Boolean).join(' · ') || '—') + '</div>' + transcriptTable(t, true));
+  }
+  window.TOOLS = { esc, fm, print, statement, receipt, csv, transcriptTable, transcriptPrint }; window.PUSH = PUSH;
 })();

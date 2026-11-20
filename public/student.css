@@ -180,3 +180,5 @@ button.itm:active{transform:scale(.9)}
 .sim-src{background:#fff;border:2px solid var(--line);border-radius:16px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}.sim-src p{margin:0}
 .sim-quote{margin:0;padding:8px 12px;background:#f6f1e2;border-inline-start:4px solid var(--gold);border-radius:10px;line-height:1.8}.sim-quote small{display:block;color:var(--muted)}
 .sim-title{margin:4px 0;color:var(--green)}.rd-exps{display:flex;flex-direction:column;gap:8px}.rd-more summary{cursor:pointer;font-weight:700;padding:8px 2px}
+
+.tab-title{margin:0 0 10px;color:var(--green,#173f36)}

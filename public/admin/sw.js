@@ -1,10 +1,10 @@
-const VERSION = '2.83.0';
+const VERSION = '2.84.0';
 const PREFIX = 'taallam-admin-shell-';
 const CACHE_NAME = PREFIX + VERSION;
 const PAGES_CACHE = 'taallam-pages-v1'; // book page images the student already opened (kept for offline reading)
 const HOME = '/admin/';
 const SHELL = ["/admin/", "/admin", "/manifest-admin.webmanifest", "/icons/taallam-admin-192.png", "/icons/taallam-admin-512.png", "/icons/taallam-admin.svg"];
-const COMMON = ['/install.js', '/offline.js', '/live.js', '/tools.js', '/platform.js', '/student.css'];
+const COMMON = ['/install.js', '/offline.js', '/live.js', '/tools.js', '/ui.js', '/teachers-ui.js', '/platform.js', '/student.css'];
 // Each file is cached on its own: one missing file must never stop the others from being cached.
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => Promise.allSettled([...SHELL, ...COMMON].map(u => cache.add(u)))));

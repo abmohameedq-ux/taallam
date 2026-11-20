@@ -394,7 +394,7 @@
   async function getInteractives(bookId) { if (!INTER[bookId]) { try { INTER[bookId] = (await api('/api/learn/interactives?bookId=' + encodeURIComponent(bookId))).items || []; } catch { INTER[bookId] = []; } } return INTER[bookId]; }
   const loadedScripts = {};
   const loadScript = url => loadedScripts[url] || (loadedScripts[url] = new Promise((res, rej) => { const s = document.createElement('script'); s.src = url; s.onload = res; s.onerror = () => { delete loadedScripts[url]; rej(new Error('تعذّر تحميل التجربة. تحقق من الاتصال.')); }; document.head.append(s); }));
-  const SIM_VER = '2.83.0';
+  const SIM_VER = '2.84.0';
   // opened from a book page: shows where it comes from, the experiment itself, and a way back to the exact page
   async function screenSim(item, book) {
     const sid = S.sid; setBody(loading('أجهّز التجربة…'));
